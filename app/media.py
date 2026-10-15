@@ -5,11 +5,15 @@ import json
 import math
 import os
 from pathlib import Path
+from functools import lru_cache
 import re
+import selectors
 import shutil
 import subprocess
 import sys
+import tempfile
 import textwrap
+import time
 import urllib.error
 import urllib.request
 import unicodedata
@@ -42,53 +46,120 @@ def _run(command: list[str], *, timeout: int = 60, cwd: Path | None = None,
     return result
 
 
-def _local_engine() -> dict:
-    if sys.platform == "darwin" and shutil.which("say"):
-        requested = os.environ.get("LOCAL_TTS_VOICE", "").strip()
-        try:
-            listing = _run([shutil.which("say"), "-v", "?"], timeout=10).stdout.decode("utf-8")
-        except MediaError:
-            listing = ""
-        turkish = []
-        for line in listing.splitlines():
-            if re.search(r"\btr[_-]TR\b", line):
-                turkish.append(line.split("tr_TR", 1)[0].split("tr-TR", 1)[0].strip())
-        voice = requested or next((v for v in turkish if v == "Yelda"), turkish[0] if turkish else "")
-        if voice:
-            return {"binary": shutil.which("say"), "provider": "macOS say", "voice": voice, "env": None}
-        return {"binary": None, "provider": "macOS say", "voice": "", "env": None}
+def _file_stamp(path: str | None) -> tuple:
+    try:
+        info = Path(path).stat()
+        return (info.st_mtime_ns, info.st_size)
+    except (OSError, TypeError):
+        return ()
 
+
+@lru_cache(maxsize=16)
+def _say_voices(binary: str, stamp: tuple, cache_epoch: int = 0) -> tuple[str, ...]:
+    listing = _run([binary, "-v", "?"], timeout=10).stdout.decode("utf-8", errors="replace")
+    voices = []
+    for line in listing.splitlines():
+        match = re.match(r"^(.+?)\s+tr[_-]TR\b", line)
+        if match:
+            voices.append(match.group(1).strip())
+    return tuple(voices)
+
+
+@lru_cache(maxsize=32)
+def _espeak_voice_error(binary: str, stamp: tuple, voice: str, data: str, libraries: str, cache_epoch: int = 0) -> str:
+    environment = dict(os.environ)
+    if data:
+        environment["ESPEAK_DATA_PATH"] = data
+    if libraries:
+        environment["LD_LIBRARY_PATH"] = libraries
+    try:
+        # -q synthesizes without opening an audio device or writing a file.
+        _run([binary, "-q", "-v", voice, "Merhaba"], timeout=10, env=environment)
+        if "+" in voice:
+            variant = voice.rsplit("+", 1)[1]
+            listing = _run([binary, "--voices=variant"], timeout=10, env=environment).stdout.decode("utf-8", errors="replace")
+            if not any(line.split()[4].rsplit("/", 1)[-1] == variant for line in listing.splitlines()[1:] if len(line.split()) >= 5):
+                return "LOCAL_TTS_VOICE içinde seçilen ses varyantı kurulu değil. Varsayılan Türkçe ses için tr kullanın."
+    except MediaError:
+        return "Seçilen yerel ses çalıştırılamadı. LOCAL_TTS_VOICE ayarını ve ses paketlerini kontrol edin; Türkçe için tr kullanın."
+    return ""
+
+
+def _local_engine() -> dict:
+    requested = os.environ.get("LOCAL_TTS_VOICE", "").strip()
+    say = shutil.which("say") if sys.platform == "darwin" else None
+    if say:
+        try:
+            turkish = _say_voices(say, _file_stamp(say), int(time.monotonic() // 15))
+        except MediaError:
+            turkish = ()
+        voice = requested if requested in turkish else next((v for v in turkish if v == "Yelda"), turkish[0] if turkish else "")
+        if voice and (not requested or requested in turkish):
+            return {"binary": say, "provider": "macOS say", "voice": voice, "env": None, "error": ""}
+        if requested and requested != "tr":
+            return {"binary": None, "provider": "macOS say", "voice": requested, "env": None,
+                    "error": "LOCAL_TTS_VOICE için seçilen Türkçe ses kurulu değil. Sistem Ayarları’ndan bu sesi indirin veya ayarı kaldırın."}
+        # A Mac without a downloaded Turkish system voice may still have eSpeak.
     binary = shutil.which("espeak-ng") or shutil.which("espeak")
     environment = None
     candidates = [Path(__file__).resolve().parents[2] / ".tools" / "espeak"]
     if os.environ.get("LOCAL_TTS_ROOT"):
         candidates.insert(0, Path(os.environ["LOCAL_TTS_ROOT"]).expanduser())
-    if not binary:
+    if not binary and sys.platform.startswith("linux"):
         for root in candidates:
             candidate = root / "usr" / "bin" / "espeak-ng"
             if candidate.is_file():
                 binary = str(candidate)
                 environment = dict(os.environ)
-                library_dir = str(root / "usr" / "lib" / "x86_64-linux-gnu")
-                environment["LD_LIBRARY_PATH"] = library_dir + (":" + os.environ["LD_LIBRARY_PATH"] if os.environ.get("LD_LIBRARY_PATH") else "")
-                environment["ESPEAK_DATA_PATH"] = str(root / "usr" / "lib" / "x86_64-linux-gnu" / "espeak-ng-data")
+                library_dirs = sorted(path for path in (root / "usr" / "lib").glob("*-linux-gnu") if path.is_dir())
+                library_dirs.append(root / "usr" / "lib")
+                environment["LD_LIBRARY_PATH"] = ":".join(map(str, library_dirs)) + (":" + os.environ["LD_LIBRARY_PATH"] if os.environ.get("LD_LIBRARY_PATH") else "")
+                data_dirs = [path / "espeak-ng-data" for path in library_dirs] + [root / "usr" / "share" / "espeak-ng-data"]
+                data_dir = next((path for path in data_dirs if path.is_dir()), None)
+                if data_dir:
+                    environment["ESPEAK_DATA_PATH"] = str(data_dir)
                 break
-    return {"binary": binary, "provider": "eSpeak NG" if binary and "espeak-ng" in binary else "eSpeak",
-            "voice": os.environ.get("LOCAL_TTS_VOICE", "tr").strip() or "tr", "env": environment}
+    voice = requested or "tr"
+    error = "Yerel Türkçe ses bulunamadı. Mac’te Yelda sesini indirin veya brew install espeak-ng çalıştırın; Linux’ta espeak-ng kurun."
+    if binary:
+        variables = environment or os.environ
+        error = _espeak_voice_error(binary, _file_stamp(binary), voice, variables.get("ESPEAK_DATA_PATH", ""), variables.get("LD_LIBRARY_PATH", ""), int(time.monotonic() // 15))
+    return {"binary": binary if not error else None, "provider": "eSpeak NG" if binary and "espeak-ng" in binary else "eSpeak",
+            "voice": voice, "env": environment, "error": error}
+
+
+@lru_cache(maxsize=8)
+def _ffmpeg_probe(binary: str, stamp: tuple, probe: str, probe_stamp: tuple, cache_epoch: int = 0) -> dict:
+    try:
+        encoders = _run([binary, "-hide_banner", "-encoders"], timeout=10).stdout.decode("utf-8", errors="replace")
+        filters = _run([binary, "-hide_banner", "-filters"], timeout=10).stdout.decode("utf-8", errors="replace")
+        _run([probe, "-version"], timeout=10)
+    except MediaError:
+        return {"ready": False, "error": "FFmpeg araçları çalıştırılamadı. FFmpeg kurulumunu ve çalıştırma izinlerini kontrol edin.", "features": {}}
+    features = {"h264": bool(re.search(r"\blibx264\s", encoders)), "aac": bool(re.search(r"\baac\s", encoders)),
+                "subtitles": bool(re.search(r"\bass\s+V->V", filters)), "zoompan": bool(re.search(r"\bzoompan\s+V->V", filters))}
+    missing = [name for name, ready in features.items() if not ready]
+    error = ("FFmpeg kurulumunda eksik özellikler: " + ", ".join(missing) + ". libass ve libx264 destekli FFmpeg kurun; Mac’te brew reinstall ffmpeg kullanın.") if missing else ""
+    return {"ready": not missing, "error": error, "features": features}
+
+
+def _ffmpeg_state() -> dict:
+    binary, probe = shutil.which("ffmpeg"), shutil.which("ffprobe")
+    if not binary or not probe:
+        return {"ready": False, "error": "FFmpeg bulunamadı. Mac’te brew install ffmpeg komutunu çalıştırıp uygulamayı yeniden başlatın.", "features": {}}
+    return _ffmpeg_probe(binary, _file_stamp(binary), probe, _file_stamp(probe), int(time.monotonic() // 15))
 
 
 def capabilities() -> dict:
     engine = _local_engine()
     available = bool(engine["binary"])
-    if available and sys.platform != "darwin":
-        try:
-            result = _run([engine["binary"], "--voices=tr"], timeout=10, env=engine["env"])
-            available = "Turkish" in result.stdout.decode("utf-8", errors="replace")
-        except MediaError:
-            available = False
+    ffmpeg = _ffmpeg_state()
     return {
-        "ffmpeg": bool(shutil.which("ffmpeg") and shutil.which("ffprobe")),
+        "ffmpeg": ffmpeg["ready"],
+        "ffmpeg_error": ffmpeg["error"],
+        "ffmpeg_features": dict(ffmpeg["features"]),
         "tts": available,
+        "tts_error": engine.get("error", ""),
         "voice": engine["voice"] if available else "",
         "provider": engine["provider"] if available else "Kurulu değil",
         "elevenlabs": bool(os.environ.get("ELEVENLABS_API_KEY") and os.environ.get("ELEVENLABS_VOICE_ID")),
@@ -98,7 +169,28 @@ def capabilities() -> dict:
 
 
 def _sentences(script: str) -> list[str]:
-    return [piece.strip() for piece in re.split(r"(?<=[.!?…])\s+|\n+", script) if piece.strip()]
+    # Preserve decimals, initials and common Turkish/news abbreviations so they do
+    # not gain a new synthesized pause and an independent subtitle interval.
+    honorifics = {"dr", "prof", "doç", "yrd", "sn", "say", "av", "arş", "öğr"}
+    abbreviations = {"vb", "vs", "vd", "bkz", "örn", "yak", "no", "ltd", "inc", "a.ş", "tic", "san"}
+    pieces = []
+    for paragraph in script.splitlines():
+        paragraph = paragraph.strip()
+        start = 0
+        for match in re.finditer(r"[.!?…]+[\"”’')\]]*(?:\s+|$)", paragraph):
+            candidate = paragraph[start:match.end()].strip()
+            remainder = paragraph[match.end():].lstrip()
+            last = candidate.split()[-1].strip("\"“”‘’'()[]").rstrip(".") if candidate else ""
+            next_lowercase = bool(remainder and remainder[0].islower())
+            if remainder and (last.lower() in honorifics or (last.lower() in abbreviations and next_lowercase)
+                              or (len(last) == 1 and last.isupper()) or (last.isdigit() and len(last) <= 2 and next_lowercase)):
+                continue
+            if candidate:
+                pieces.append(candidate)
+            start = match.end()
+        if paragraph[start:].strip():
+            pieces.append(paragraph[start:].strip())
+    return pieces
 
 
 def _glyph_width(character: str) -> float:
@@ -154,6 +246,20 @@ def _ass_escape(text: str) -> str:
     return text.replace("\\", "＼").replace("{", "｛").replace("}", "｝").replace("\r", "").replace("\n", r"\N")
 
 
+def _title_layout(title: str) -> tuple[int, str]:
+    title = " ".join(title.split())
+    # Reserve a compact block for the complete headline instead of letting it
+    # dominate the entire frame. Mark truncation rather than dropping words.
+    for size in (46, 42, 38, 34, 30):
+        lines = _wrap_lines(title, characters=34, em_width=570 / size)
+        if len(lines) <= 4:
+            return size, "\n".join(lines)
+    last = lines[3].rstrip()
+    while last and sum(map(_glyph_width, last + "…")) > 570 / 30:
+        last = last[:-1].rstrip()
+    return 30, "\n".join(lines[:3] + [last + "…"])
+
+
 def _write_subtitles(output_dir: Path, title: str, segments: list[tuple[float, float, str]], duration: float) -> tuple[Path, Path]:
     subtitle_path = output_dir / "captions.srt"
     subtitle_path.write_text("\n\n".join(
@@ -170,15 +276,15 @@ ScaledBorderAndShadow: yes
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
 Style: Caption,{font},44,&H00FFFFFF,&H000000FF,&H00140F15,&H80000000,-1,0,0,0,100,100,0,0,1,3,1,2,48,48,270,1
-Style: Title,{font},53,&H00FFFFFF,&H000000FF,&H00301B20,&H00000000,-1,0,0,0,100,100,0,0,1,1,0,8,60,60,230,1
-Style: Label,{font},22,&H00CCFFC5,&H000000FF,&H00000000,&H00000000,-1,0,0,0,100,100,4,0,1,0,0,8,50,50,130,1
+Style: Title,{font},46,&H00FFFFFF,&H000000FF,&H00301B20,&H00000000,-1,0,0,0,100,100,0,0,1,1,0,8,66,66,205,1
+Style: Label,{font},20,&H00CCFFC5,&H000000FF,&H00000000,&H00000000,-1,0,0,0,100,100,3,0,1,0,0,8,50,50,138,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
-    title_lines = _wrap_lines(title[:110], characters=19, em_width=590 / 53)[:5]
+    title_size, fitted_title = _title_layout(title)
     events = [f"Dialogue: 0,0:00:00.00,{_timestamp(duration, True)},Label,,0,0,0,,TEKNOLOJİ GÜNDEMİ",
-              f"Dialogue: 0,0:00:00.00,{_timestamp(duration, True)},Title,,0,0,0,,{_ass_escape(chr(10).join(title_lines))}"]
+              f"Dialogue: 0,0:00:00.00,{_timestamp(duration, True)},Title,,0,0,0,,{{\\fs{title_size}}}{_ass_escape(fitted_title)}"]
     events.extend(f"Dialogue: 1,{_timestamp(start, True)},{_timestamp(end, True)},Caption,,0,0,0,,{_ass_escape(text)}"
                   for start, end, text in segments)
     ass_path = output_dir / "captions.ass"
@@ -251,7 +357,56 @@ def _speak(sentence: str, output_dir: Path, index: int, engine: dict, provider: 
     return target
 
 
-def render(project: dict, output_dir: Path, options: dict | None = None,
+def _encode(command: list[str], output_dir: Path, duration: float, report: Callable[[int], None]) -> None:
+    """Read FFmpeg's media-time progress without buffering unbounded output."""
+    deadline = time.monotonic() + 300
+    last_progress = 65
+    with tempfile.TemporaryFile() as error_log:
+        try:
+            process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=error_log, cwd=output_dir)
+        except OSError as exc:
+            raise MediaError("FFmpeg başlatılamadı. Kurulumu ve çalıştırma izinlerini kontrol edin.") from exc
+        try:
+            with selectors.DefaultSelector() as selector:
+                selector.register(process.stdout, selectors.EVENT_READ)
+                pending = ""
+                while selector.get_map():
+                    if time.monotonic() >= deadline:
+                        raise MediaError("Video kodlama zaman aşımına uğradı. Metni kısaltıp yeniden deneyin.")
+                    for key, _ in selector.select(timeout=.25):
+                        data = os.read(key.fileobj.fileno(), 8192)
+                        if not data:
+                            selector.unregister(key.fileobj)
+                            continue
+                        pending += data.decode("ascii", errors="replace")
+                        while "\n" in pending:
+                            line, pending = pending.split("\n", 1)
+                            if line.startswith("out_time_us="):
+                                try:
+                                    value = int(line.split("=", 1)[1]) / 1_000_000
+                                except ValueError:
+                                    continue
+                                percent = 65 + min(30, max(0, int(30 * value / duration)))
+                                if percent > last_progress:
+                                    report(percent)
+                                    last_progress = percent
+            process.wait(timeout=max(.1, deadline - time.monotonic()))
+            if process.returncode:
+                error_log.seek(0, os.SEEK_END)
+                error_log.seek(max(0, error_log.tell() - 1200))
+                detail = error_log.read().decode("utf-8", errors="replace")
+                raise MediaError(f"Video kodlanamadı. FFmpeg: {detail}")
+        except subprocess.TimeoutExpired as exc:
+            raise MediaError("Video kodlama zaman aşımına uğradı. Metni kısaltıp yeniden deneyin.") from exc
+        finally:
+            if process.poll() is None:
+                process.kill()
+                process.wait(timeout=10)
+            if process.stdout:
+                process.stdout.close()
+
+
+def _render_work(project: dict, output_dir: Path, options: dict | None = None,
            progress: Callable[[int], None] | None = None) -> dict:
     options = options or {}
     report = progress or (lambda _percent: None)
@@ -261,8 +416,9 @@ def render(project: dict, output_dir: Path, options: dict | None = None,
         raise MediaError("Video üretmek için önce senaryo yazın.")
     if len(script) > MAX_SCRIPT_LENGTH:
         raise MediaError(f"Senaryo en fazla {MAX_SCRIPT_LENGTH} karakter olabilir; Shorts için metni kısaltın.")
-    if not shutil.which("ffmpeg") or not shutil.which("ffprobe"):
-        raise MediaError("FFmpeg bulunamadı. Mac’te brew install ffmpeg komutunu çalıştırıp uygulamayı yeniden başlatın.")
+    ffmpeg = _ffmpeg_state()
+    if not ffmpeg["ready"]:
+        raise MediaError(ffmpeg["error"])
     speech = options.get("speech", True)
     if not isinstance(speech, bool):
         raise MediaError("Seslendirme seçeneği true veya false olmalı.")
@@ -278,13 +434,9 @@ def render(project: dict, output_dir: Path, options: dict | None = None,
         raise MediaError("Konuşma hızı 100 ile 240 arasında olmalı.") from None
     if not 100 <= rate <= 240:
         raise MediaError("Konuşma hızı 100 ile 240 arasında olmalı.")
-    engine = _local_engine()
+    engine = _local_engine() if speech and provider == "local" else {"binary": None, "provider": "", "voice": "", "env": None}
     if speech and provider == "local" and not engine["binary"]:
-        raise MediaError("Yerel Türkçe ses bulunamadı. Mac’te Türkçe Yelda sesini indirin; Linux’ta espeak-ng kurun. İsterseniz seslendirmeyi kapatarak sessiz video oluşturabilirsiniz.")
-    if speech and provider == "local" and sys.platform == "darwin" and not engine["voice"]:
-        raise MediaError("Türkçe ses bulunamadı. Mac Sistem Ayarları → Erişilebilirlik → Okunan İçerik bölümünden Yelda sesini indirin.")
-    output_dir = Path(output_dir).resolve()
-    output_dir.mkdir(parents=True, exist_ok=True)
+        raise MediaError(engine.get("error") or "Yerel Türkçe ses çalıştırılamadı. Ses ayarlarını ve kurulu sesleri kontrol edin.")
     report(5)
     sentences = _sentences(script)
     segments = []
@@ -302,9 +454,11 @@ def render(project: dict, output_dir: Path, options: dict | None = None,
             raise MediaError("Video 90 saniyeyi aşıyor. Senaryoyu kısaltıp yeniden deneyin.")
         chunks = _subtitle_chunks(sentence)
         weight = sum(len(chunk) for chunk in chunks)
+        minimum = min(.65, duration / len(chunks) * .7)
+        remainder = duration - minimum * len(chunks)
         chunk_cursor = cursor
         for chunk_index, chunk in enumerate(chunks):
-            end = cursor + duration if chunk_index == len(chunks) - 1 else chunk_cursor + duration * len(chunk) / weight
+            end = cursor + duration if chunk_index == len(chunks) - 1 else chunk_cursor + minimum + remainder * len(chunk) / weight
             segments.append((chunk_cursor, end, chunk))
             chunk_cursor = end
         cursor += duration
@@ -329,22 +483,64 @@ def render(project: dict, output_dir: Path, options: dict | None = None,
     report(65)
     video_path = output_dir / "reel.mp4"
     filters = "scale=720:1280,zoompan=z='min(zoom+0.00020,1.035)':x='iw/2-iw/zoom/2':y='ih/2-ih/zoom/2':d=1:s=720x1280:fps=24,ass=captions.ass"
-    _run([shutil.which("ffmpeg"), "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
+    _encode([shutil.which("ffmpeg"), "-nostdin", "-hide_banner", "-loglevel", "error", "-y", "-nostats", "-stats_period", "0.1", "-progress", "pipe:1",
           "-loop", "1", "-framerate", "24", "-i", "background.ppm", "-i", "narration.wav",
           "-vf", filters, "-t", f"{cursor:.6f}", "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
           "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart",
-          "-threads", "2", "-filter_threads", "2", "-shortest", "reel.mp4"], timeout=300, cwd=output_dir)
-    probe = _run([shutil.which("ffprobe"), "-v", "error", "-show_entries", "format=duration",
+          "-threads", "2", "-filter_threads", "2", "-shortest", "reel.mp4"], output_dir, cursor, report)
+    probe = _run([shutil.which("ffprobe"), "-v", "error", "-show_entries", "format=duration:stream=codec_name,codec_type,width,height",
                   "-of", "json", str(video_path)])
-    actual_duration = float(json.loads(probe.stdout)["format"]["duration"])
-    if not video_path.is_file() or video_path.stat().st_size < 1024:
+    try:
+        metadata = json.loads(probe.stdout)
+        actual_duration = float(metadata["format"]["duration"])
+        valid_video = any(stream.get("codec_name") == "h264" and stream.get("width") == 720 and stream.get("height") == 1280 for stream in metadata["streams"])
+        valid_audio = any(stream.get("codec_name") == "aac" and stream.get("codec_type") == "audio" for stream in metadata["streams"])
+    except (ValueError, TypeError, KeyError) as exc:
+        raise MediaError("Video çıktısı doğrulanamadı. Yeniden deneyin.") from exc
+    if not valid_video or not valid_audio or not 0 < actual_duration <= MAX_DURATION + .1 or not video_path.is_file() or video_path.stat().st_size < 1024:
         raise MediaError("Video çıktısı doğrulanamadı. Yeniden deneyin.")
     for path in audio_files:
         path.unlink(missing_ok=True)
     (output_dir / "background.ppm").unlink(missing_ok=True)
-    report(100)
+    report(98)
     return {"video_path": str(video_path), "subtitle_path": str(subtitle_path),
             "duration": round(actual_duration, 2), "speech": speech,
             "provider": ("ElevenLabs" if provider == "elevenlabs" else engine["provider"]) if speech else "Sessiz video",
             "voice": engine["voice"] if speech and provider == "local" else "",
             "subtitle_timing": "sentence_audio" if speech else "estimated"}
+
+
+def render(project: dict, output_dir: Path, options: dict | None = None,
+           progress: Callable[[int], None] | None = None) -> dict:
+    """Produce atomically from a private staging folder, cleaning failed attempts."""
+    output_dir = Path(output_dir).resolve()
+    try:
+        output_dir.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        raise MediaError("Çıktı klasörüne yazılamıyor. Yazma iznini ve boş disk alanını kontrol edin.") from exc
+    exports = ("reel.mp4", "captions.srt", "captions.ass", "narration.wav")
+    if any((output_dir / name).exists() for name in exports):
+        raise MediaError("Bu klasörde daha önce üretilmiş medya var. Yeni bir çıktı klasörü kullanın.")
+    report = progress or (lambda _percent: None)
+    published: list[Path] = []
+    try:
+        with tempfile.TemporaryDirectory(prefix=".render-", dir=output_dir) as temporary:
+            work = Path(temporary)
+            result = _render_work(project, work, options, report)
+            for name in exports:
+                # Same-filesystem links publish without overwriting another job.
+                destination = output_dir / name
+                os.link(work / name, destination)
+                published.append(destination)
+    except BaseException as exc:
+        for path in published:
+            path.unlink(missing_ok=True)
+        if isinstance(exc, FileExistsError):
+            raise MediaError("Çıktı dosyaları başka bir işlem tarafından oluşturuldu. Yeni bir çıktı klasörü kullanın.") from exc
+        if isinstance(exc, OSError):
+            raise MediaError("Video kaydedilemedi. Yazma iznini ve boş disk alanını kontrol edin.") from exc
+        raise
+    result["video_path"] = str(output_dir / "reel.mp4")
+    result["subtitle_path"] = str(output_dir / "captions.srt")
+    report(100)
+    return result

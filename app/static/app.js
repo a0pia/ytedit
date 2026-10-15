@@ -41,6 +41,8 @@
     x: '<path d="m6 6 12 12M6 18 18 6"/>',
     globe:
       '<circle cx="12" cy="12" r="9"/><ellipse cx="12" cy="12" rx="4" ry="9"/><path d="M3 12h18"/>',
+    copy: '<rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/>',
+    trash: '<path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7"/>',
     cpu: '<rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4"/><rect x="9" y="9" width="6" height="6" rx="1"/>',
   };
   const $ = (selector, root = document) => root.querySelector(selector);
@@ -59,6 +61,13 @@
     dirty: false,
     poll: null,
     toastTimer: null,
+    projectSearch: "",
+    projectFilter: "all",
+    sources: [],
+    lastRefreshed: null,
+    cached: false,
+    pollInFlight: false,
+    confirmResolver: null,
   };
   const labels = {
     dashboard: "Genel bakış",
@@ -169,12 +178,16 @@
         "Sunucudan beklenmeyen bir yanıt alındı. Uygulamanın çalıştığını kontrol et.",
       );
     }
-    if (!response.ok)
-      throw new Error(
+    if (!response.ok) {
+      const error = new Error(
         data.error ||
           data.message ||
           "İşlem tamamlanamadı. Lütfen yeniden dene.",
       );
+      error.details = data;
+      error.status = response.status;
+      throw error;
+    }
     return data;
   }
   async function busy(button, work) {
@@ -208,8 +221,12 @@
     return box;
   }
 
-  function navigate(view, updateHash = true) {
+  async function navigate(view, updateHash = true, skipGuard = false) {
     if (!labels[view]) view = "dashboard";
+    if (view !== state.view && !skipGuard && !(await canDiscard())) {
+      history.replaceState(null, "", "#" + state.view);
+      return false;
+    }
     state.view = view;
     $$(".view").forEach((section) => {
       section.hidden = section.id !== "view-" + view;
@@ -222,7 +239,49 @@
     });
     $("#breadcrumb-current").textContent = labels[view];
     if (updateHash) history.replaceState(null, "", "#" + view);
-    $("#page-content").scrollIntoView({ block: "start", behavior: "instant" });
+    $(".main-panel").scrollTop = 0;
+    if (window.innerWidth < 1000)
+      window.scrollTo({ top: 0, behavior: "instant" });
+    return true;
+  }
+  function askConfirmation(title, message, acceptLabel = "Onayla") {
+    if (state.confirmResolver) return Promise.resolve(false);
+    $("#confirm-title").textContent = title;
+    $("#confirm-message").textContent = message;
+    $("#confirm-accept").textContent = acceptLabel;
+    $("#confirm-dialog").showModal();
+    $("#confirm-cancel").focus();
+    return new Promise((resolve) => {
+      state.confirmResolver = resolve;
+    });
+  }
+  function resolveConfirmation(accepted) {
+    const resolve = state.confirmResolver;
+    state.confirmResolver = null;
+    $("#confirm-dialog").close();
+    if (resolve) resolve(accepted);
+  }
+  async function canDiscard() {
+    if (!state.dirty) return true;
+    const accepted = await askConfirmation(
+      "Kaydedilmemiş değişiklikler var",
+      "Bu projedeki düzenlemelerin henüz kaydedilmedi. Devam edersen bu değişiklikler silinecek.",
+      "Değişiklikleri bırak",
+    );
+    if (accepted) {
+      state.dirty = false;
+      if (state.selected) fillEditor(state.selected);
+    }
+    return accepted;
+  }
+  function activeProject(project) {
+    return ["queued", "rendering", "uploading"].includes(project?.status);
+  }
+  function markDirty() {
+    $("#dirty-indicator").textContent = state.dirty
+      ? "Kaydedilmedi"
+      : "Kaydedildi";
+    $("#dirty-indicator").classList.toggle("unsaved", state.dirty);
   }
 
   function newsMeta(item) {
@@ -367,27 +426,54 @@
   function renderProjects() {
     const grid = $("#projects-grid");
     grid.replaceChildren();
-    if (!state.projects.length) {
+    const query = state.projectSearch.trim().toLocaleLowerCase("tr");
+    const projects = state.projects.filter((project) => {
+      const matchesText =
+        !query ||
+        [project.title, project.script, project.description]
+          .join(" ")
+          .toLocaleLowerCase("tr")
+          .includes(query);
+      const filter = state.projectFilter;
+      const matchesStatus =
+        filter === "all" ||
+        (filter === "uploaded"
+          ? !!project.youtube_url
+          : filter === "rendering"
+            ? ["queued", "rendering", "uploading"].includes(project.status)
+            : filter === "ready"
+              ? project.status === "ready" && !project.youtube_url
+              : project.status === filter);
+      return matchesText && matchesStatus;
+    });
+    $("#project-result-count").textContent =
+      projects.length + " / " + state.projects.length + " proje";
+    if (!projects.length) {
       grid.append(
         emptyState(
-          "Koleksiyonun ilk hikâyesine hazır.",
-          "Bir haberden başla veya kendi fikrini bir kısa videoya dönüştür.",
+          state.projects.length
+            ? "Eşleşen proje bulunamadı."
+            : "İlk projen için hazırsın.",
+          state.projects.length
+            ? "Arama metnini veya durum filtresini değiştirebilirsin."
+            : "Bir haber seç veya kendi fikrinle video üretmeye başla.",
           "folder",
-          { label: "İlk videomu oluştur", run: () => showNewProject() },
+          { label: "Yeni proje", run: () => showNewProject() },
         ),
       );
       return;
     }
-    state.projects.forEach((project) => {
-      const card = el("button", "project-card");
-      card.type = "button";
-      card.setAttribute("aria-label", project.title + " projesini aç");
+    projects.forEach((project) => {
+      const card = el("article", "project-card");
+      const open = el("button", "project-open");
+      open.type = "button";
+      open.setAttribute("aria-label", project.title + " projesini aç");
       const cover = el("div", "project-cover");
       const top = el("div", "project-cover-top", "HYPE ORIGINALS");
       top.append(icon("sparkles"));
       cover.append(
         top,
-        el("span", "project-cover-star", "✳"),
+        el("span", "project-cover-star", "✳︎"),
         el("h3", "", project.title),
       );
       const body = el("div", "project-card-body");
@@ -396,17 +482,104 @@
         el(
           "span",
           "project-status",
-          statusLabels[project.status] || project.status || "Taslak",
+          project.youtube_url
+            ? "YouTube’a yüklendi"
+            : statusLabels[project.status] || "Taslak",
         ),
         el("time", "", prettyDate(project.created)),
         icon("arrow-up-right"),
       );
       body.append(el("h3", "", project.title), meta);
-      card.append(cover, body);
-      card.addEventListener("click", () => openProject(project.id));
+      open.append(cover, body);
+      open.addEventListener("click", () => openProject(project.id));
+      const actions = el("div", "project-card-actions");
+      const duplicate = el("button", "project-action-button", "Çoğalt");
+      duplicate.type = "button";
+      duplicate.prepend(icon("copy"));
+      duplicate.disabled = activeProject(project);
+      duplicate.setAttribute("aria-label", project.title + " projesini çoğalt");
+      duplicate.addEventListener("click", () =>
+        duplicateProject(project, duplicate),
+      );
+      const exportLink = el("a", "project-action-button", "JSON");
+      exportLink.href =
+        "/api/projects/" + encodeURIComponent(project.id) + "/export";
+      exportLink.download = "hype-project-" + project.id + ".json";
+      exportLink.setAttribute(
+        "aria-label",
+        project.title + " projesini JSON olarak dışa aktar",
+      );
+      exportLink.prepend(icon("download"));
+      const remove = el("button", "project-action-button delete-action");
+      remove.type = "button";
+      remove.title = "Projeyi sil";
+      remove.setAttribute("aria-label", project.title + " projesini sil");
+      remove.append(icon("trash"));
+      remove.disabled = activeProject(project);
+      remove.addEventListener("click", () => deleteProject(project, remove));
+      actions.append(duplicate, exportLink, remove);
+      card.append(open, actions);
       grid.append(card);
     });
   }
+  async function duplicateProject(project, button) {
+    if (!(await canDiscard())) return;
+    await busy(button, async () => {
+      try {
+        const copy = projectFromResponse(
+          await api(
+            "/api/projects/" + encodeURIComponent(project.id) + "/duplicate",
+            { method: "POST", body: "{}" },
+          ),
+        );
+        updateProject(copy);
+        await openProject(copy.id);
+        toast("Projenin yeni bir taslak kopyası oluşturuldu.");
+        loadActivity().catch(() => {});
+      } catch (error) {
+        toast(error.message, true);
+      }
+    });
+  }
+  async function deleteProject(project, button) {
+    const accepted = await askConfirmation(
+      "Bu proje silinsin mi?",
+      "“" +
+        project.title +
+        "” projesi ve yerel video dosyaları silinecek. YouTube'a yüklenmiş bir video varsa bu işlem YouTube'daki videoyu silmez.",
+      "Projeyi sil",
+    );
+    if (!accepted) return;
+    await busy(button, async () => {
+      try {
+        await api("/api/projects/" + encodeURIComponent(project.id), {
+          method: "DELETE",
+        });
+        state.projects = state.projects.filter(
+          (item) => item.id !== project.id,
+        );
+        if (state.selected?.id === project.id) {
+          state.selected = null;
+          state.dirty = false;
+          $("#studio-editor").hidden = true;
+          $("#studio-empty").hidden = false;
+          $("#preview-video").pause();
+          $("#preview-video").removeAttribute("src");
+          showStudioError("");
+          try {
+            localStorage.removeItem("hype-selected-project");
+          } catch {}
+        }
+        renderProjects();
+        renderStats();
+        toast("Proje silindi.");
+        loadActivity().catch(() => {});
+      } catch (error) {
+        toast(error.message, true);
+      }
+    });
+  }
+
   function updateProject(project) {
     const index = state.projects.findIndex((item) => item.id === project.id);
     if (index === -1) state.projects.unshift(project);
@@ -470,6 +643,10 @@
     state.news = data.items || [];
     state.newsWarning = data.warning || "";
     state.newsError = "";
+    state.sources = Array.isArray(data.sources) ? data.sources : [];
+    state.lastRefreshed = data.last_refreshed || null;
+    state.cached = !!data.cached;
+    renderSourceHealth();
     renderNews();
     renderDashboardNews();
     renderStats();
@@ -482,12 +659,87 @@
         !state.news.length,
       );
   }
-  async function loadProjects() {
+  function renderSourceHealth() {
+    const health = $("#source-health");
+    health.replaceChildren();
+    state.sources.forEach((source) => {
+      const chip = el("span", "source-chip");
+      const available = ["ok", "ready", "success"].includes(source.status);
+      const cached = source.status === "cached";
+      chip.dataset.state = available
+        ? "ready"
+        : cached
+          ? "cached"
+          : source.status === "unknown"
+            ? "unknown"
+            : "error";
+      const label = available
+        ? (Number(source.count) || 0) + " haber"
+        : cached
+          ? "Önbellek"
+          : source.status === "unknown"
+            ? "Henüz taranmadı"
+            : "Erişilemiyor";
+      chip.append(
+        el("i"),
+        document.createTextNode(
+          (source.source || source.name || "Kaynak") + " · " + label,
+        ),
+      );
+      if (source.error) chip.title = source.error;
+      health.append(chip);
+    });
+    const stamp = state.lastRefreshed ? new Date(state.lastRefreshed) : null;
+    $("#news-refreshed").textContent =
+      stamp && !Number.isNaN(stamp.getTime())
+        ? "Son yenileme: " +
+          stamp.toLocaleString("tr-TR", {
+            day: "numeric",
+            month: "short",
+            hour: "2-digit",
+            minute: "2-digit",
+          }) +
+          (state.cached ? " · Kayıtlı haberler gösteriliyor" : "")
+        : "Kaynakları yenileyerek haber akışını başlat.";
+  }
+
+  async function loadProjects(notify = false) {
     const data = await api("/api/projects");
+    const previous = new Map(
+      state.projects.map((project) => [project.id, project]),
+    );
     state.projects = data.items || [];
+    state.projects.forEach((project) => {
+      if (notify) notifyTransition(previous.get(project.id), project);
+    });
+    if (state.selected) {
+      const latest = state.projects.find(
+        (project) => project.id === state.selected.id,
+      );
+      if (latest) {
+        state.selected = latest;
+        updatePreview(latest);
+      }
+    }
     renderStats();
     renderProjects();
+    if (state.projects.some(activeProject)) startPolling();
   }
+  function notifyTransition(previous, project) {
+    if (!previous || !activeProject(previous) || activeProject(project)) return;
+    if (previous.status === "uploading")
+      toast(
+        project.youtube_url && !project.error
+          ? "YouTube yüklemesi tamamlandı: " + project.title
+          : project.error ||
+              "Yükleme doğrulanamadı; YouTube kanalını kontrol et.",
+        !!project.error || !project.youtube_url,
+      );
+    else if (project.error || project.status === "error")
+      toast(project.error || "Video oluşturulamadı: " + project.title, true);
+    else if (project.status === "ready") toast("Video hazır: " + project.title);
+  }
+
   async function loadActivity() {
     const data = await api("/api/activity");
     const list = $("#activity-list");
@@ -515,7 +767,8 @@
     });
   }
 
-  function showNewProject(values = {}) {
+  async function showNewProject(values = {}) {
+    if (!(await canDiscard())) return;
     const dialog = $("#new-project-dialog");
     $("#new-project-form").reset();
     $("#new-title").value = values.title || "";
@@ -594,19 +847,37 @@
     const subtitle = safeUrl(project.subtitle_url, true);
     $("#download-subtitles").hidden = !subtitle;
     if (subtitle) $("#download-subtitles").href = subtitle;
-    const running = ["rendering", "queued"].includes(project.status);
+    const running = activeProject(project);
+    $$(
+      "#editor-form input, #editor-form textarea, #editor-form button, .render-settings select, .theme-picker input",
+    ).forEach((control) => {
+      control.disabled = running;
+    });
     $("#render-project").disabled = running;
     $("#render-progress").hidden = !running;
-    $("#render-progress-text").textContent = running
-      ? "Video hazırlanıyor…"
-      : "Video hazır";
+    $("#render-progress-text").textContent =
+      project.status === "queued"
+        ? "Üretim sırasında bekliyor…"
+        : project.status === "uploading"
+          ? "YouTube’a yükleniyor…"
+          : "Video hazırlanıyor…";
     const progress = Math.max(0, Math.min(100, Number(project.progress) || 0));
-    $("#render-progress-number").textContent = progress + "%";
-    $("#render-progress-bar").style.width = Math.max(3, progress) + "%";
+    const knownProgress =
+      project.status === "rendering" &&
+      Number.isFinite(Number(project.progress));
+    $("#render-progress-number").textContent = knownProgress
+      ? progress + "%"
+      : "";
+    $("#render-progress-bar").style.width = knownProgress
+      ? progress + "%"
+      : "0%";
+    $("#render-progress").classList.toggle(
+      "indeterminate",
+      running && !knownProgress,
+    );
     $("#editor-status").textContent =
       statusLabels[project.status] || project.status || "Taslak";
-    $("#upload-project").disabled =
-      project.status === "uploading" || !!project.youtube_url;
+    $("#upload-project").disabled = running || !!project.youtube_url;
     if (project.youtube_url) {
       $("#upload-project").replaceChildren(
         icon("check"),
@@ -670,10 +941,12 @@
       source.append(note);
     }
     state.dirty = false;
+    markDirty();
     countWords();
     updatePreview(project);
   }
   async function openProject(id) {
+    if (!(await canDiscard())) return;
     try {
       const project = projectFromResponse(
         await api("/api/projects/" + encodeURIComponent(id)),
@@ -681,7 +954,7 @@
       state.selected = project;
       updateProject(project);
       fillEditor(project);
-      navigate("studio");
+      navigate("studio", true, true);
       try {
         localStorage.setItem("hype-selected-project", id);
       } catch {}
@@ -693,6 +966,10 @@
   }
   async function saveCurrent(showToast = true) {
     if (!state.selected) return null;
+    if (activeProject(state.selected))
+      throw new Error(
+        "Bu proje işleniyor. Düzenlemek için işlemin tamamlanmasını bekle.",
+      );
     if (!state.dirty) {
       if (showToast) toast("Tüm değişikliklerin kaydedilmiş.");
       return state.selected;
@@ -716,6 +993,7 @@
     );
     state.selected = project;
     state.dirty = false;
+    markDirty();
     updateProject(project);
     updatePreview(project);
     if (showToast) toast("Değişikliklerin kaydedildi.");
@@ -777,48 +1055,43 @@
   }
   function startPolling() {
     clearTimeout(state.poll);
-    state.poll = setTimeout(pollProject, 1500);
+    state.poll = setTimeout(pollProject, 2200);
   }
+
   async function pollProject() {
-    if (!state.selected) return;
+    if (state.pollInFlight || document.hidden) {
+      startPolling();
+      return;
+    }
+    if (!state.projects.some(activeProject)) return;
+    state.pollInFlight = true;
     try {
-      const project = projectFromResponse(
-        await api("/api/projects/" + encodeURIComponent(state.selected.id)),
-      );
-      const previousStatus = state.selected.status;
-      state.selected = project;
-      updateProject(project);
-      updatePreview(project);
-      if (["rendering", "queued", "uploading"].includes(project.status))
-        startPolling();
-      else {
-        loadActivity().catch(() => {});
-        if (previousStatus === "uploading")
-          toast(
-            project.youtube_url && !project.error
-              ? "Videon YouTube’a yüklendi."
-              : project.error ||
-                  "YouTube yüklemesi doğrulanamadı; kanalını kontrol et.",
-            !!project.error || !project.youtube_url,
-          );
-        else if (project.status === "ready")
-          toast("Videon hazır. İzle, kontrol et ve istersen paylaş.");
-        if (project.status === "error")
-          toast(project.error || "Video üretimi tamamlanamadı.", true);
-      }
+      await loadProjects(true);
+      await Promise.allSettled([loadActivity(), loadStatus()]);
     } catch (error) {
-      showStudioError(
-        "İşlem durumu alınamadı: " +
-          error.message +
-          " Bağlantı yenilendiğinde projeyi tekrar aç.",
+      showError(
+        "#system-message",
+        "İşlem durumu yenilenemedi. Yeniden bağlanılıyor: " + error.message,
       );
-      $("#render-project").disabled = false;
+    } finally {
+      state.pollInFlight = false;
+      if (state.projects.some(activeProject)) startPolling();
     }
   }
-  function showUpload() {
-    if (!state.selected?.video_url) return;
+
+  async function showUpload() {
+    if (!state.selected?.video_url || activeProject(state.selected)) return;
+    if (state.dirty) {
+      toast(
+        "Yüklemeden önce değişikliklerini kaydet ve videonu tekrar kontrol et.",
+        true,
+      );
+      return;
+    }
     $("#upload-form").reset();
     clearError("#upload-error");
+    $("#upload-retry-row").hidden = !state.selected.upload_uncertain;
+    $("#upload-retry-confirm").required = !!state.selected.upload_uncertain;
     $("#upload-summary").textContent = state.selected.title;
     $("#upload-dialog").showModal();
   }
@@ -835,11 +1108,20 @@
             body: JSON.stringify({
               confirm: true,
               privacy: $("#upload-privacy").value,
+              ...($("#upload-retry-confirm").checked
+                ? { retry_confirmed: true }
+                : {}),
             }),
           },
         );
+        const acceptedProject = projectFromResponse(result);
+        if (acceptedProject.error) throw new Error(acceptedProject.error);
         $("#upload-dialog").close();
-        toast("YouTube yüklemesi başladı. Sonucu burada takip edebilirsin.");
+        toast(
+          acceptedProject.youtube_url
+            ? "Videon YouTube’a yüklendi."
+            : "YouTube yüklemesi başladı. Sonucu burada takip edebilirsin.",
+        );
         if (result.project || result.id) {
           state.selected = projectFromResponse(result);
           updateProject(state.selected);
@@ -850,6 +1132,11 @@
         if (state.selected.status === "uploading") startPolling();
         loadActivity().catch(() => {});
       } catch (error) {
+        if (error.details?.requires_retry_confirmation) {
+          $("#upload-retry-row").hidden = false;
+          $("#upload-retry-confirm").required = true;
+          state.selected.upload_uncertain = true;
+        }
         showError("#upload-error", error.message);
       }
     });
@@ -901,6 +1188,30 @@
     });
   }
   function bindEvents() {
+    $("#confirm-accept").addEventListener("click", () =>
+      resolveConfirmation(true),
+    );
+    $("#confirm-cancel").addEventListener("click", () =>
+      resolveConfirmation(false),
+    );
+    $("#confirm-close").addEventListener("click", () =>
+      resolveConfirmation(false),
+    );
+    $("#confirm-dialog").addEventListener("cancel", (event) => {
+      event.preventDefault();
+      resolveConfirmation(false);
+    });
+    $("#confirm-dialog").addEventListener("close", () => {
+      if (state.confirmResolver) resolveConfirmation(false);
+    });
+    $("#project-search").addEventListener("input", (event) => {
+      state.projectSearch = event.target.value;
+      renderProjects();
+    });
+    $("#project-filter").addEventListener("change", (event) => {
+      state.projectFilter = event.target.value;
+      renderProjects();
+    });
     $("#preview-video").addEventListener("loadedmetadata", (event) => {
       const video = event.target;
       if (video.currentTime === 0 && video.duration > 0.05)
@@ -947,6 +1258,7 @@
     $("#editor-form").addEventListener("submit", saveProject);
     $("#editor-form").addEventListener("input", () => {
       state.dirty = true;
+      markDirty();
       countWords();
     });
     $("#render-project").addEventListener("click", renderProject);
@@ -969,6 +1281,17 @@
     window.addEventListener("hashchange", () =>
       navigate(location.hash.slice(1), false),
     );
+    const refreshOnFocus = () => {
+      if (document.hidden) return;
+      Promise.allSettled([
+        loadStatus(),
+        loadProjects(true),
+        loadNews(),
+        loadActivity(),
+      ]);
+    };
+    window.addEventListener("focus", refreshOnFocus);
+    document.addEventListener("visibilitychange", refreshOnFocus);
     window.addEventListener("beforeunload", (event) => {
       if (state.dirty) {
         event.preventDefault();

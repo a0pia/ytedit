@@ -1,5 +1,7 @@
 """Local API behavior, persistence, job isolation and authorization boundaries."""
-from pathlib import Path
+from datetime import datetime, timedelta, timezone
+import json
+import sqlite3
 import threading
 import time
 from urllib.parse import parse_qs, urlparse
@@ -54,7 +56,34 @@ def fake_render(project, target, opts, progress):
     video.write_bytes(b"test-video")
     subtitle.write_text("1\n00:00:00,000 --> 00:00:01,000\nTürkçe haber\n", encoding="utf-8")
     progress(70)
-    return {"video_path": str(video), "subtitle_path": str(subtitle), "duration": 1.0}
+    return {"video_path": str(video), "subtitle_path": str(subtitle), "duration": 1.0,
+            "provider": "Test local voice", "voice": "tr", "speech": opts.get("speech", True),
+            "subtitle_timing": "sentence_audio" if opts.get("speech", True) else "estimated"}
+
+
+def save_document(data, project):
+    """Seed persisted legacy/adversarial data without exposing a test-only HTTP route."""
+    with sqlite3.connect(data / "studio.sqlite3") as db:
+        db.execute("INSERT OR REPLACE INTO documents VALUES(?,?,?)",
+                   ("project", project["id"], json.dumps(project)))
+
+
+def saved_document(data, ident):
+    with sqlite3.connect(data / "studio.sqlite3") as db:
+        row = db.execute("SELECT body FROM documents WHERE kind='project' AND id=?", (ident,)).fetchone()
+    return json.loads(row[0])
+
+
+def ready_project(client, data, **changes):
+    project = create(client)
+    target = data / "renders" / project["id"] / "first"
+    output = fake_render(project, target, {"speech": False}, lambda value: None)
+    project.update(status="ready", progress=100, video_path=output["video_path"], duration=1,
+                   video_url=f"/media/{project['id']}/first/reel.mp4",
+                   subtitle_url=f"/media/{project['id']}/first/captions.srt")
+    project.update(changes)
+    save_document(data, project)
+    return project
 
 
 def test_manual_project_is_persisted_and_editorial_fields_can_be_edited(studio):
@@ -126,7 +155,7 @@ def test_manual_url_is_metadata_and_never_fetched(studio):
 
 
 def test_editing_a_rendered_project_invalidates_its_media(studio, monkeypatch):
-    _, client, _ = studio
+    _, client, data = studio
     monkeypatch.setattr(server.media, "render", fake_render)
     project = create(client)
     endpoint = f"/api/projects/{project['id']}"
@@ -146,6 +175,196 @@ def test_editing_a_rendered_project_invalidates_its_media(studio, monkeypatch):
     assert updated["status"] == "draft"
     for name in ("video_path", "video_url", "subtitle_url", "duration"):
         assert name not in updated
+        assert name not in saved_document(data, project["id"])
+
+
+@pytest.mark.parametrize("changes", [
+    {"description": "Yeni yayın açıklaması"}, {"tags": ["Gündem", "Teknoloji"]},
+    {}, {"title": ARTICLE["title"]},
+])
+def test_metadata_and_noop_edits_preserve_existing_video(studio, changes):
+    _, client, data = studio
+    project = ready_project(client, data)
+    response = client.patch(f"/api/projects/{project['id']}", json=changes)
+    assert response.status_code == 200
+    saved = response.get_json()
+    assert saved["status"] == "ready"
+    for field in ("video_url", "subtitle_url", "duration"):
+        assert saved[field] == project[field]
+    assert saved_document(data, project["id"])["video_path"] == project["video_path"]
+    for field, value in changes.items():
+        assert saved[field] == value
+
+
+def test_changed_video_title_invalidates_render(studio):
+    _, client, data = studio
+    project = ready_project(client, data)
+    response = client.patch(f"/api/projects/{project['id']}", json={"title": "Ekranda yeni başlık"})
+    assert response.status_code == 200
+    saved = response.get_json()
+    assert saved["status"] == "draft"
+    assert "video_url" not in saved and "video_path" not in saved
+    assert "video_path" not in saved_document(data, project["id"])
+
+
+def test_project_search_matches_title_script_and_source_case_insensitively(studio):
+    _, client, data = studio
+    title_match = create(client, title="Alpha robotics", summary="A source update", source="Journal")
+    script_match = create(client, title="A different story", summary="ALPHA chip details", source="Journal")
+    source_match = create(client, title="Another story", summary="Source details", source="Alpha Magazine")
+    create(client, title="Unrelated", summary="No matching words", source="Other")
+    response = client.get("/api/projects", query_string={"search": "aLpHa"})
+    assert response.status_code == 200
+    assert {project["id"] for project in response.get_json()["items"]} == {
+        title_match["id"], script_match["id"], source_match["id"],
+    }
+
+
+def test_project_status_filters_distinguish_ready_and_uploaded(studio):
+    _, client, data = studio
+    draft = create(client, title="Draft search")
+    ready = ready_project(client, data)
+    uploaded = ready_project(client, data, youtube_id="published-video")
+    draft_result = client.get("/api/projects", query_string={"status": "draft"})
+    assert {item["id"] for item in draft_result.get_json()["items"]} == {draft["id"]}
+    ready_result = client.get("/api/projects", query_string={"status": "ready"})
+    assert {item["id"] for item in ready_result.get_json()["items"]} == {ready["id"]}
+    uploaded_result = client.get("/api/projects", query_string={"status": "uploaded"})
+    assert {item["id"] for item in uploaded_result.get_json()["items"]} == {uploaded["id"]}
+    assert client.get("/api/projects", query_string={"status": "not-a-status"}).status_code == 400
+    combined = client.get("/api/projects", query_string={"status": "draft", "search": "Draft"})
+    assert [item["id"] for item in combined.get_json()["items"]] == [draft["id"]]
+
+
+@pytest.mark.parametrize("status", ["queued", "rendering", "uploading"])
+def test_restart_does_not_leave_unfinished_jobs_running(studio, status):
+    _, client, data = studio
+    project = create(client)
+    project.update(status=status, progress=40)
+    save_document(data, project)
+    restarted = server.create_app(data, testing=True).test_client()
+    recovered = restarted.get(f"/api/projects/{project['id']}").get_json()
+    assert recovered["status"] == "error"
+    assert recovered["error"]
+
+
+def test_duplicate_creates_fresh_draft_without_render_or_youtube_state(studio):
+    _, client, data = studio
+    original = ready_project(client, data, youtube_id="uploaded-id", youtube_url="https://youtube.com/watch?v=uploaded-id",
+                             uploaded_at="2026-10-16T12:00:00+00:00", privacy="private", error="Old failure")
+    response = client.post(f"/api/projects/{original['id']}/duplicate", json={})
+    assert response.status_code == 201
+    duplicate = response.get_json()
+    assert duplicate["id"] != original["id"]
+    assert duplicate["status"] == "draft"
+    assert duplicate["progress"] == 0
+    assert not duplicate.get("error")
+    for field in ("script", "description", "tags", "source", "source_url", "generation_mode"):
+        assert duplicate[field] == original[field]
+    for field in ("video_path", "video_url", "subtitle_url", "duration", "youtube_id", "youtube_url", "uploaded_at", "privacy"):
+        assert field not in duplicate
+    assert saved_document(data, original["id"]) == original
+    assert client.get(f"/api/projects/{original['id']}").get_json()["youtube_id"] == original["youtube_id"]
+    assert client.post("/api/projects/missing/duplicate", json={}).status_code == 404
+
+
+def test_export_is_downloadable_editorial_json_without_machine_paths_or_credentials(studio):
+    _, client, data = studio
+    project = ready_project(client, data, render_options={"style": "sunset", "speech": False},
+                            access_token="never-export-this-token", provider_token="never-export-provider-token")
+    response = client.get(f"/api/projects/{project['id']}/export")
+    assert response.status_code == 200
+    assert "attachment" in response.headers["Content-Disposition"]
+    assert ".json" in response.headers["Content-Disposition"]
+    assert response.mimetype == "application/json"
+    exported = json.loads(response.data)
+    assert exported["title"] == project["title"]
+    assert exported["script"] == project["script"]
+    assert exported["source_url"] == project["source_url"]
+    text = response.get_data(as_text=True)
+    assert str(data) not in text
+    assert "never-export" not in text
+    assert "video_path" not in exported
+    assert client.get("/api/projects/missing/export").status_code == 404
+
+
+def test_delete_removes_only_project_render_directory_and_document(studio):
+    _, client, data = studio
+    project = ready_project(client, data)
+    outside = data / "personal-video.mp4"
+    outside.write_bytes(b"personal")
+    other_render = data / "renders" / "another-project"
+    other_render.mkdir()
+    (other_render / "reel.mp4").write_bytes(b"another")
+    # Never trust a video_path from the database to decide what should be deleted.
+    project["video_path"] = str(outside)
+    save_document(data, project)
+    response = client.delete(f"/api/projects/{project['id']}")
+    assert response.status_code == 200
+    assert response.get_json() == {"ok": True}
+    assert client.get(f"/api/projects/{project['id']}").status_code == 404
+    assert client.delete(f"/api/projects/{project['id']}").status_code == 404
+    assert not (data / "renders" / project["id"]).exists()
+    assert outside.read_bytes() == b"personal"
+    assert (other_render / "reel.mp4").read_bytes() == b"another"
+
+
+def test_delete_does_not_follow_project_render_directory_symlink(studio):
+    _, client, data = studio
+    project = create(client)
+    outside = data / "outside-render-tree"
+    outside.mkdir()
+    (outside / "keep.mp4").write_bytes(b"keep")
+    symlink = data / "renders" / project["id"]
+    symlink.symlink_to(outside, target_is_directory=True)
+    response = client.delete(f"/api/projects/{project['id']}")
+    assert response.status_code == 200
+    assert not symlink.exists() and not symlink.is_symlink()
+    assert (outside / "keep.mp4").read_bytes() == b"keep"
+
+
+def test_render_result_keeps_speech_provider_voice_and_subtitle_timing(studio, monkeypatch):
+    _, client, _ = studio
+    monkeypatch.setattr(server.media, "render", fake_render)
+    project = create(client)
+    response = client.post(f"/api/projects/{project['id']}/render", json={"speech": True, "style": "sunset", "speech_rate": 180})
+    assert response.status_code == 202
+    saved = await_status(client, project["id"], "ready")
+    assert saved["speech"] is True
+    assert saved["provider"] == "Test local voice"
+    assert saved["voice"] == "tr"
+    assert saved["subtitle_timing"] == "sentence_audio"
+    assert saved["render_options"]["style"] == "sunset"
+    assert saved["render_options"]["speech_rate"] == 180
+
+
+def test_queued_project_waits_for_render_slot_and_cannot_be_deleted(studio, monkeypatch):
+    _, client, _ = studio
+    started, release = threading.Event(), threading.Event()
+    rendered = []
+    first, second = create(client, title="First project"), create(client, title="Second project")
+
+    def controlled_render(project, *args):
+        rendered.append(project["id"])
+        if project["id"] == first["id"]:
+            started.set()
+            assert release.wait(timeout=5)
+        return fake_render(project, *args)
+
+    monkeypatch.setattr(server.media, "render", controlled_render)
+    try:
+        assert client.post(f"/api/projects/{first['id']}/render", json={"speech": False}).status_code == 202
+        assert started.wait(timeout=2)
+        assert client.post(f"/api/projects/{second['id']}/render", json={"speech": False}).status_code == 202
+        assert client.get(f"/api/projects/{second['id']}").get_json()["status"] == "queued"
+        assert rendered == [first["id"]]
+        assert client.delete(f"/api/projects/{first['id']}").status_code == 409
+        assert client.delete(f"/api/projects/{second['id']}").status_code == 409
+    finally:
+        release.set()
+        await_status(client, first["id"], "ready")
+        await_status(client, second["id"], "ready")
+    assert rendered == [first["id"], second["id"]]
 
 
 def test_duplicate_render_and_edit_are_blocked_while_job_is_running(studio, monkeypatch):
@@ -173,7 +392,10 @@ def test_duplicate_render_and_edit_are_blocked_while_job_is_running(studio, monk
         await_status(client, project["id"], "ready")
 
 
-@pytest.mark.parametrize("options", [{"speech": "false"}, {"style": "unknown"}, {"tts_provider": "paid"}])
+@pytest.mark.parametrize("options", [
+    {"speech": "false"}, {"style": "unknown"}, {"tts_provider": "paid"},
+    {"speech_rate": 99}, {"speech_rate": 241}, {"speech_rate": True}, {"speech_rate": "170"},
+])
 def test_invalid_render_options_never_start_a_job(studio, monkeypatch, options):
     _, client, _ = studio
     monkeypatch.setattr(server.media, "render", lambda *args: pytest.fail("Invalid job started"))
@@ -260,6 +482,72 @@ def test_upload_requires_connected_account(studio, monkeypatch):
     assert "YouTube" in response.get_json()["error"]
 
 
+def connect_fake_youtube(data, monkeypatch):
+    monkeypatch.setenv("YOUTUBE_CLIENT_ID", "test-client")
+    monkeypatch.setenv("YOUTUBE_CLIENT_SECRET", "test-secret")
+    path = data / "youtube-tokens.json"
+    path.write_text('{"access_token":"test-token"}')
+    return path
+
+
+def test_ambiguous_upload_failure_requires_separate_retry_confirmation(studio, monkeypatch):
+    _, client, data = studio
+    connect_fake_youtube(data, monkeypatch)
+    project = ready_project(client, data)
+    calls = []
+
+    def upload(*args):
+        calls.append(1)
+        if len(calls) == 1:
+            raise requests.ConnectionError("private-credential-must-not-leak")
+        return {"youtube_id": "uploaded-video", "youtube_url": "https://youtube.com/watch?v=uploaded-video",
+                "privacy": "private"}
+
+    monkeypatch.setattr(server.youtube, "upload", upload)
+    endpoint = f"/api/projects/{project['id']}/upload"
+    assert client.post(endpoint, json={"confirm": True}).status_code == 202
+    failed = await_status(client, project["id"], "ready")
+    assert failed["upload_uncertain"] is True
+    assert "private-credential" not in failed["error"]
+    assert failed["video_url"] == project["video_url"]
+    retry = client.post(endpoint, json={"confirm": True})
+    assert retry.status_code == 409
+    assert retry.get_json()["requires_retry_confirmation"] is True
+    assert calls == [1]
+    assert client.post(endpoint, json={"confirm": True, "retry_confirmed": "true"}).status_code == 409
+    assert client.post(endpoint, json={"confirm": True, "retry_confirmed": True}).status_code == 202
+    uploaded = await_status(client, project["id"], "ready")
+    assert uploaded["youtube_id"] == "uploaded-video"
+    assert uploaded["upload_uncertain"] is False
+    assert len(calls) == 2
+    assert client.post(endpoint, json={"confirm": True}).status_code == 409
+
+
+def test_youtube_disconnect_is_blocked_during_upload(studio, monkeypatch):
+    _, client, data = studio
+    tokens = connect_fake_youtube(data, monkeypatch)
+    project = ready_project(client, data)
+    started, release = threading.Event(), threading.Event()
+
+    def upload(*args):
+        started.set()
+        assert release.wait(timeout=5)
+        return {"youtube_id": "uploaded-video", "privacy": "private"}
+
+    monkeypatch.setattr(server.youtube, "upload", upload)
+    try:
+        response = client.post(f"/api/projects/{project['id']}/upload", json={"confirm": True})
+        assert response.status_code == 202
+        assert started.wait(timeout=2)
+        assert client.post("/api/youtube/disconnect", json={}).status_code == 409
+        assert tokens.exists()
+    finally:
+        release.set()
+        await_status(client, project["id"], "ready")
+    assert client.post("/api/youtube/disconnect", json={}).status_code == 200
+    assert not tokens.exists()
+
+
 def test_media_paths_cannot_traverse_outside_render_directory(studio):
     _, client, data = studio
     (data / "outside.mp4").write_bytes(b"private")
@@ -299,3 +587,70 @@ def test_api_responses_have_local_application_security_headers(studio):
     assert response.headers["X-Content-Type-Options"] == "nosniff"
     assert response.headers["X-Frame-Options"] == "DENY"
     assert "connect-src 'self'" in response.headers["Content-Security-Policy"]
+
+
+def news_document(ident, source, *, days_old=0, undated=False):
+    timestamp = (datetime.now(timezone.utc) - timedelta(days=days_old)).isoformat()
+    return {"id": ident, "title": f"{source} teknoloji haberi", "summary": "Kaynak özeti",
+            "source": source, "url": f"https://example.org/{ident}", "score": 80,
+            "category": "Teknoloji", "published": None if undated else timestamp, "fetched_at": timestamp}
+
+
+def seed_news(data, *articles):
+    with sqlite3.connect(data / "studio.sqlite3") as db:
+        db.executemany("INSERT OR REPLACE INTO documents VALUES(?,?,?)",
+                       [("news", article["id"], json.dumps(article)) for article in articles])
+
+
+def test_partial_news_refresh_keeps_recent_failed_sources_and_expires_stale_rows(studio, monkeypatch):
+    _, client, data = studio
+    old_healthy = news_document("old-healthy", "Healthy")
+    failed_recent = news_document("cached-unavailable", "Unavailable", days_old=1)
+    failed_stale = news_document("stale-unavailable", "Unavailable", days_old=9)
+    undated_stale = news_document("stale-undated", "Unavailable", days_old=9, undated=True)
+    seed_news(data, old_healthy, failed_recent, failed_stale, undated_stale)
+    new_healthy = news_document("new-healthy", "Healthy")
+    health = [{"source": "Healthy", "status": "ok", "count": 1, "error": None},
+              {"source": "Unavailable", "status": "error", "count": 0, "error": "Kaynağa erişilemedi."}]
+    monkeypatch.setattr(server.news, "fetch_news_detailed", lambda: {
+        "items": [new_healthy], "sources": health, "warning": "Unavailable kaynağına erişilemedi.",
+    })
+    refreshed = client.post("/api/news/refresh", json={})
+    assert refreshed.status_code == 200
+    result = refreshed.get_json()
+    articles = {item["id"]: item for item in result["items"]}
+    assert new_healthy["id"] in articles
+    assert failed_recent["id"] in articles
+    assert failed_stale["id"] not in articles and undated_stale["id"] not in articles
+    assert result["sources"] == health
+    assert result["last_refreshed"]
+    listed = client.get("/api/news").get_json()
+    assert {item["id"] for item in listed["items"]} == set(articles)
+    assert listed["sources"] == health
+    assert listed["last_refreshed"] == result["last_refreshed"]
+    restarted = server.create_app(data, testing=True).test_client().get("/api/news").get_json()
+    assert restarted["sources"] == health
+    assert restarted["last_refreshed"] == result["last_refreshed"]
+
+
+def test_total_news_refresh_failure_preserves_usable_cache_and_enforces_cooldown(studio, monkeypatch):
+    _, client, data = studio
+    cached = news_document("recent-cache", "Unavailable", days_old=2, undated=True)
+    seed_news(data, cached)
+    calls = []
+
+    def unavailable():
+        calls.append(1)
+        return {"items": [], "sources": [{"source": "Unavailable", "status": "error", "count": 0, "error": "Unavailable"}],
+                "warning": "Unavailable kaynağına erişilemedi."}
+
+    monkeypatch.setattr(server.news, "fetch_news_detailed", unavailable)
+    refreshed = client.post("/api/news/refresh", json={})
+    assert refreshed.status_code == 200
+    result = refreshed.get_json()
+    assert [item["id"] for item in result["items"]] == [cached["id"]]
+    assert result["cached"] is True
+    assert result["sources"][0]["status"] == "error"
+    assert result["warning"]
+    assert client.post("/api/news/refresh", json={}).status_code == 429
+    assert calls == [1]

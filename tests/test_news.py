@@ -72,6 +72,27 @@ def test_invalid_urls_and_empty_titles_are_not_discovered():
     assert [entry["url"] for entry in news.parse_feed(feed, "Kaynak", NOW)] == ["https://example.org/good"]
 
 
+def test_article_urls_drop_tracking_and_keep_meaningful_query_parameters():
+    first = news.canonical_url("https://EXAMPLE.org/story?utm_source=feed&utm_campaign=launch&page=2&q=chip#section")
+    second = news.canonical_url("https://example.org/story?q=chip&page=2&fbclid=tracking&gclid=tracking")
+    assert first == second == "https://example.org/story?page=2&q=chip"
+    assert news.canonical_url("https://user:password@example.org/story") == ""
+    assert news.canonical_url("https:///missing-host") == ""
+
+
+def test_keyword_matching_does_not_confuse_substrings_or_brand_topics_with_ai():
+    articles = news.parse_feed(rss(
+        item("Retail mail fails", summary="A plain product update.", url="https://example.org/retail"),
+        item("Apple announces a new chip", summary="Product update.", url="https://example.org/apple"),
+        item("AI model announced", summary="Research update.", url="https://example.org/ai"),
+    ), "Kaynak", NOW)
+    by_url = {article["url"]: article for article in articles}
+    assert by_url["https://example.org/retail"]["category"] == "Teknoloji"
+    assert by_url["https://example.org/apple"]["category"] == "Teknoloji"
+    assert by_url["https://example.org/ai"]["category"] == "Yapay zekâ"
+    assert by_url["https://example.org/retail"]["score"] < by_url["https://example.org/ai"]["score"]
+
+
 def test_oversized_feeds_are_rejected_before_parsing():
     with pytest.raises(ValueError, match="büyük"):
         news.parse_feed(b" " * 2_000_001, "Kaynak", NOW)
@@ -126,6 +147,35 @@ def test_configured_sources_include_turkish_feed_and_are_all_discovered(monkeypa
     assert not warning
 
 
+def test_detailed_refresh_exposes_per_source_health_without_private_exception_text(monkeypatch):
+    monkeypatch.setattr(news, "FEEDS", (("Healthy", "https://healthy.invalid/feed"),
+                                     ("Unavailable", "https://unavailable.invalid/feed")))
+
+    class Response:
+        def raise_for_status(self):
+            pass
+
+        def iter_content(self, size):
+            yield rss(item("Healthy AI story", date="bad date"))
+
+    def fetch(url, **kwargs):
+        if "unavailable" in url:
+            raise requests.ConnectionError("never-show-this-credential")
+        return Response()
+
+    monkeypatch.setattr(news.requests, "get", fetch)
+    result = news.fetch_news_detailed()
+    assert len(result["items"]) == 1
+    health = {item["source"]: item for item in result["sources"]}
+    assert health["Healthy"]["status"] == "ok"
+    assert health["Healthy"]["count"] == 1
+    assert not health["Healthy"]["error"]
+    assert health["Unavailable"]["status"] == "error"
+    assert health["Unavailable"]["count"] == 0
+    assert health["Unavailable"]["error"]
+    assert "never-show-this-credential" not in json.dumps(result)
+
+
 def test_template_preserves_source_language_without_calling_an_api(monkeypatch):
     monkeypatch.setattr(writing.requests, "post", lambda *args, **kwargs: pytest.fail("Template called an API"))
     article = {"title": "A new chip", "summary": "Verified source wording.", "source": "Publication", "url": "https://example.org/report"}
@@ -159,6 +209,26 @@ def test_local_ollama_is_explicit_and_source_link_is_preserved(monkeypatch):
     assert calls[0][0] == "http://127.0.0.1:11434/api/chat"
     assert calls[0][1]["json"]["model"] == "local-test-model"
     assert article["url"] in result["description"]
+    assert result["generation_mode"] == "ollama"
+
+
+def test_model_output_cannot_override_project_identity_or_inject_internal_fields(monkeypatch):
+    model_fields = {"title": "Türkçe başlık", "script": "Türkçe seslendirme.", "description": "Açıklama",
+                    "tags": ["Teknoloji"], "id": "attacker-id", "status": "ready",
+                    "video_path": "/private/secret.mp4", "access_token": "never-save-this-token",
+                    "generation_mode": "injected"}
+
+    class Response:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"message": {"content": json.dumps(model_fields)}}
+
+    monkeypatch.setattr(writing.requests, "post", lambda *args, **kwargs: Response())
+    result = writing.generate({"title": "Source", "url": "https://example.org/story"}, "ollama")
+    for field in ("id", "status", "video_path", "access_token"):
+        assert field not in result
     assert result["generation_mode"] == "ollama"
 
 

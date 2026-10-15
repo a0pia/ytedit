@@ -1,6 +1,8 @@
 """YouTube OAuth and resumable-upload protocol with fake HTTP responses only."""
 from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor
 import json
+import threading
 import time
 
 import pytest
@@ -30,10 +32,14 @@ def response(body=None, *, status=200, headers=None):
     return result
 
 
-def token_file(tmp_path, **changes):
+def token_file(tmp_path, *, expired=False, **changes):
     path = tmp_path / "youtube-tokens.json"
     youtube.save_tokens(path, {"access_token": "test-access-token", "refresh_token": "test-refresh-token",
                                "expires_in": 3600, **changes})
+    if expired:
+        saved = json.loads(path.read_text())
+        saved["expires_at"] = time.time() - 60
+        path.write_text(json.dumps(saved))
     return path
 
 
@@ -76,7 +82,7 @@ def test_current_access_token_does_not_call_google(tmp_path):
 
 @pytest.mark.parametrize("new_refresh", [None, "rotated-refresh"])
 def test_refresh_preserves_or_rotates_refresh_token_and_restores_private_permissions(tmp_path, monkeypatch, new_refresh):
-    path = token_file(tmp_path, expires_in=-10)
+    path = token_file(tmp_path, expired=True)
     path.chmod(0o644)
     calls = []
     returned = {"access_token": "refreshed-access", "expires_in": 1800}
@@ -103,14 +109,77 @@ def test_refresh_preserves_or_rotates_refresh_token_and_restores_private_permiss
 def test_missing_or_unrefreshable_tokens_fail_without_network(tmp_path):
     with pytest.raises(ValueError, match="bağlayın"):
         youtube.access_token(tmp_path / "missing.json")
-    path = token_file(tmp_path, expires_in=-1, refresh_token=None)
+    path = token_file(tmp_path, expired=True, refresh_token=None)
     with pytest.raises(ValueError, match="süresi dolmuş"):
         youtube.access_token(path)
 
 
+@pytest.mark.parametrize("body", [{}, {"expires_in": 3600}, {"access_token": "", "refresh_token": "replacement"}, [], "unexpected"])
+def test_malformed_refresh_does_not_overwrite_existing_token_file(tmp_path, monkeypatch, body):
+    path = token_file(tmp_path, expired=True)
+    original = path.read_bytes()
+    monkeypatch.setattr(youtube.requests, "post", lambda *args, **kwargs: response(body))
+    with pytest.raises(ValueError, match="belirteci"):
+        youtube.access_token(path)
+    assert path.read_bytes() == original
+
+
+@pytest.mark.parametrize("expires_in", [0, "bad", None])
+def test_refresh_with_invalid_expiry_preserves_existing_token_file(tmp_path, monkeypatch, expires_in):
+    path = token_file(tmp_path, expired=True)
+    original = path.read_bytes()
+    monkeypatch.setattr(youtube.requests, "post", lambda *args, **kwargs: response({
+        "access_token": "replacement-access", "refresh_token": "replacement-refresh", "expires_in": expires_in,
+    }))
+    with pytest.raises(ValueError, match="süresi"):
+        youtube.access_token(path)
+    assert path.read_bytes() == original
+    assert not list(tmp_path.glob(".youtube-*.tmp"))
+
+
+def test_concurrent_access_token_calls_refresh_account_only_once(tmp_path, monkeypatch):
+    path = token_file(tmp_path, expired=True)
+    refreshing, release = threading.Event(), threading.Event()
+    second_attempted, duplicate_refresh = threading.Event(), threading.Event()
+    calls = []
+    calls_lock = threading.Lock()
+
+    def refresh(*args, **kwargs):
+        with calls_lock:
+            calls.append(1)
+            if len(calls) > 1:
+                duplicate_refresh.set()
+        refreshing.set()
+        assert release.wait(timeout=3)
+        return response({"access_token": "shared-refreshed-access", "refresh_token": "rotated-refresh", "expires_in": 3600})
+
+    def second_access():
+        second_attempted.set()
+        return youtube.access_token(path)
+
+    monkeypatch.setattr(youtube.requests, "post", refresh)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(youtube.access_token, path)
+        try:
+            assert refreshing.wait(timeout=2)
+            second = pool.submit(second_access)
+            assert second_attempted.wait(timeout=2)
+            assert not duplicate_refresh.wait(timeout=0.2)
+        finally:
+            release.set()
+        assert first.result(timeout=2) == "shared-refreshed-access"
+        assert second.result(timeout=2) == "shared-refreshed-access"
+    assert calls == [1]
+    saved = json.loads(path.read_text())
+    assert saved["access_token"] == "shared-refreshed-access"
+    assert saved["refresh_token"] == "rotated-refresh"
+    assert path.stat().st_mode & 0o777 == 0o600
+    assert not list(tmp_path.glob(".youtube-*.tmp"))
+
+
 @pytest.mark.parametrize("operation", ["exchange", "refresh"])
 def test_token_http_errors_propagate_and_preserve_existing_tokens(tmp_path, monkeypatch, operation):
-    path = token_file(tmp_path, expires_in=-10)
+    path = token_file(tmp_path, expired=True)
     original = path.read_bytes()
     monkeypatch.setattr(youtube.requests, "post", lambda *args, **kwargs: response(status=401))
     with pytest.raises(requests.HTTPError):
@@ -199,6 +268,7 @@ def test_resumable_upload_uses_explicit_privacy(tmp_path, monkeypatch, privacy):
 @pytest.mark.parametrize("location", [
     "https://attacker.invalid/upload", "http://www.googleapis.com/upload",
     "https://www.googleapis.com.attacker.invalid/upload", "https://www.googleapis.com@attacker.invalid/upload",
+    "https://username@www.googleapis.com/upload", "https://www.googleapis.com:9443/upload",
     "//www.googleapis.com/upload", "",
 ])
 def test_untrusted_upload_location_is_rejected_before_transmitting_file_or_token(tmp_path, monkeypatch, location):

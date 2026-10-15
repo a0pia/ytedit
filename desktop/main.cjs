@@ -20,6 +20,10 @@ try {
   configError = new Error('Proje içindeki .env dosyası okunamadı. Dosya izinlerini ve biçimini kontrol edin.');
 }
 const config = { ...fileConfig, ...process.env };
+if (process.platform === 'darwin') {
+  const homebrewPaths = ['/opt/homebrew/bin', '/usr/local/bin', '/opt/homebrew/opt/node/bin', '/usr/local/opt/node/bin'];
+  config.PATH = [...homebrewPaths.filter((entry) => fs.existsSync(entry)), config.PATH || '/usr/bin:/bin:/usr/sbin:/sbin'].join(path.delimiter);
+}
 const rawPort = config.HYPE_PORT || '8787';
 const port = /^\d+$/.test(rawPort) ? Number(rawPort) : 0;
 const validPort = Number.isInteger(port) && port >= 1024 && port <= 65535;
@@ -28,34 +32,60 @@ let backend;
 let backendFailure;
 let mainWindow;
 let quitting = false;
+let quitCheckInProgress = false;
+let shutdownFinished = false;
+let startupFailed = false;
+let backendGroupPid;
 let logStream;
 
-function readStatus() {
+function serviceError(message) {
+  const error = new Error(message);
+  error.code = 'EINVALIDSERVICE';
+  return error;
+}
+
+function readJson(route, maxBytes = 512000) {
   return new Promise((resolve, reject) => {
-    const request = http.get(`${origin}/api/status`, { timeout: 1200 }, (response) => {
+    const request = http.get(`${origin}${route}`, { timeout: 1800 }, (response) => {
       let body = '';
       response.setEncoding('utf8');
       response.on('data', (chunk) => {
         body += chunk;
-        if (body.length > 512000) request.destroy(new Error('Durum yanıtı çok büyük.'));
+        if (body.length > maxBytes) request.destroy(serviceError('Yerel sunucunun yanıtı beklenenden büyük.'));
       });
       response.on('error', reject);
       response.on('end', () => {
-        if (response.statusCode !== 200) return reject(new Error('Sunucu hazır değil.'));
+        if (response.statusCode !== 200) return reject(serviceError(`${port} numaralı portta uyumlu Hype Studio sunucusu yanıt vermedi.`));
         try {
-          const status = JSON.parse(body);
-          if (status.app !== 'hype-studio') {
-            return reject(new Error(`${port} numaralı portu başka bir uygulama kullanıyor.`));
-          }
-          resolve(status);
-        } catch (error) {
-          reject(error);
+          resolve(JSON.parse(body));
+        } catch {
+          reject(serviceError(`${port} numaralı portu başka bir uygulama kullanıyor.`));
         }
       });
     });
-    request.on('timeout', () => request.destroy(new Error('Sunucu yanıt vermedi.')));
+    request.on('timeout', () => request.destroy(serviceError(`${port} numaralı porttaki sunucu yanıt vermiyor. Çalışan sunucuyu kontrol edin veya farklı bir HYPE_PORT kullanın.`)));
     request.on('error', reject);
   });
+}
+
+function canonicalPath(value) {
+  const resolved = path.resolve(projectRoot, value);
+  try { return fs.realpathSync(resolved); } catch { return resolved; }
+}
+
+async function readStatus() {
+  const status = await readJson('/api/status');
+  if (status?.app !== 'hype-studio') throw serviceError(`${port} numaralı portu başka bir uygulama kullanıyor.`);
+  if (status.api_version !== 2) {
+    throw serviceError(`${port} numaralı portta eski veya uyumsuz Hype Studio sunucusu çalışıyor. Açık sunucuyu durdurup uygulamayı yeniden başlatın.`);
+  }
+  const expectedDataDir = config.HYPE_DATA_DIR || path.join(app.getPath('userData'), 'data');
+  if (typeof status.project_root !== 'string' || typeof status.data_dir !== 'string'
+      || canonicalPath(status.project_root) !== canonicalPath(projectRoot)
+      || canonicalPath(status.data_dir) !== canonicalPath(expectedDataDir)) {
+    throw serviceError(`${port} numaralı portta farklı proje veya veri klasörü kullanan Hype Studio çalışıyor. Açık sunucuyu durdurun ya da HYPE_DATA_DIR ve HYPE_PORT ayarlarını eşleştirin.`);
+  }
+  return status;
 }
 
 async function startBackend() {
@@ -63,11 +93,12 @@ async function startBackend() {
     await readStatus();
     return;
   } catch (error) {
-    if (error.message.includes('başka bir uygulama')) throw error;
+    if (error.code !== 'ECONNREFUSED') throw error;
   }
 
-  const python = config.HYPE_PYTHON || path.join(projectRoot, '.venv', 'bin', 'python');
-  if (!fs.existsSync(python)) {
+  const venvPython = path.join(projectRoot, '.venv', 'bin', 'python');
+  const python = fs.existsSync(venvPython) ? venvPython : config.HYPE_PYTHON;
+  if (!python || !fs.existsSync(python)) {
     throw new Error('Python ortamı bulunamadı. Proje klasöründe önce ./scripts/setup.sh komutunu çalıştırın.');
   }
   const logPath = path.join(app.getPath('logs'), 'hype-studio-backend.log');
@@ -88,7 +119,9 @@ async function startBackend() {
     },
     stdio: ['ignore', 'pipe', 'pipe'],
     shell: false,
+    detached: process.platform !== 'win32',
   });
+  backendGroupPid = process.platform !== 'win32' ? backend.pid : undefined;
   backend.stdout.pipe(logStream, { end: false });
   backend.stderr.pipe(logStream, { end: false });
   backend.on('error', (error) => { backendFailure = error; });
@@ -107,7 +140,7 @@ async function startBackend() {
       await readStatus();
       return;
     } catch (error) {
-      if (error.message.includes('başka bir uygulama')) throw error;
+      if (error.code === 'EINVALIDSERVICE') throw error;
       await new Promise((resolve) => setTimeout(resolve, 300));
     }
   }
@@ -162,6 +195,12 @@ function createWindow() {
   });
   mainWindow.webContents.on('will-attach-webview', (event) => event.preventDefault());
   mainWindow.once('ready-to-show', () => mainWindow.show());
+  mainWindow.on('close', (event) => {
+    if (!shutdownFinished) {
+      event.preventDefault();
+      void requestQuit();
+    }
+  });
   mainWindow.on('closed', () => { mainWindow = null; });
   mainWindow.loadURL(origin);
 }
@@ -184,6 +223,7 @@ if (!hasLock) {
     await startBackend();
     createWindow();
   }).catch((error) => {
+    startupFailed = true;
     dialog.showErrorBox('Hype Studio başlatılamadı', error.message);
     app.quit();
   });
@@ -191,18 +231,83 @@ if (!hasLock) {
 
 app.on('window-all-closed', () => app.quit());
 app.on('before-quit', (event) => {
-  if (quitting || !backend || backend.exitCode !== null || backend.signalCode !== null) return;
+  if (shutdownFinished || !hasLock) return;
   event.preventDefault();
-  quitting = true;
-  const timeout = setTimeout(() => {
-    if (backend.exitCode === null) backend.kill('SIGKILL');
-    logStream?.end();
-    app.quit();
-  }, 1800);
-  backend.once('exit', () => {
-    clearTimeout(timeout);
-    logStream?.end();
-    app.quit();
-  });
-  backend.kill('SIGTERM');
+  void requestQuit();
 });
+
+function ownedBackendAlive() {
+  if (!backend) return false;
+  if (backendGroupPid) {
+    try { process.kill(-backendGroupPid, 0); return true; } catch { return false; }
+  }
+  return backend.exitCode === null && backend.signalCode === null && Boolean(backend.pid);
+}
+
+function signalOwnedBackend(signal) {
+  if (!backend) return;
+  try {
+    if (backendGroupPid) process.kill(-backendGroupPid, signal);
+    else if (backend.pid) backend.kill(signal);
+  } catch (error) {
+    if (error.code !== 'ESRCH') throw error;
+  }
+}
+
+async function stopOwnedBackend() {
+  if (!backend) return;
+  signalOwnedBackend('SIGTERM');
+  const deadline = Date.now() + 1800;
+  while (ownedBackendAlive() && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 60));
+  }
+  if (ownedBackendAlive()) signalOwnedBackend('SIGKILL');
+  backendGroupPid = undefined;
+  logStream?.end();
+}
+
+async function requestQuit() {
+  if (quitCheckInProgress || quitting) return;
+  quitCheckInProgress = true;
+  try {
+    if (!startupFailed && !backendFailure) {
+      let busy = 0;
+      let unavailable = false;
+      try {
+        const projects = await readJson('/api/projects', 8 * 1024 * 1024);
+        if (!Array.isArray(projects.items)) throw new Error('Geçersiz proje listesi.');
+        busy = projects.items.filter((project) => ['queued', 'rendering', 'uploading'].includes(project.status)).length;
+      } catch {
+        unavailable = true;
+      }
+      if (busy || unavailable) {
+        const detail = unavailable
+          ? 'Devam eden işlem durumu alınamadı. Çıkarsanız uygulamanın başlattığı üretim veya yükleme işlemleri durdurulur.'
+          : backend
+            ? `${busy} proje sırada veya işleniyor. Çıkarsanız video üretimi veya YouTube yüklemesi yarıda kalabilir.`
+            : `${busy} proje sırada veya işleniyor. Bu pencereyi kapattığınızda ayrı başlatılan sunucudaki işlemler devam eder.`;
+        const options = {
+          type: 'question',
+          title: 'Hype Studio kapatılsın mı?',
+          message: unavailable ? 'İşlem durumu kontrol edilemedi.' : 'Devam eden işler var.',
+          detail,
+          buttons: ['Çalışmaya devam et', 'Çık'],
+          defaultId: 0,
+          cancelId: 0,
+          noLink: true,
+        };
+        const result = mainWindow ? await dialog.showMessageBox(mainWindow, options) : await dialog.showMessageBox(options);
+        if (result.response !== 1) return;
+      }
+    }
+    quitting = true;
+    await stopOwnedBackend();
+    shutdownFinished = true;
+    app.quit();
+  } catch (error) {
+    quitting = false;
+    dialog.showErrorBox('Hype Studio kapatılamadı', error.message);
+  } finally {
+    quitCheckInProgress = false;
+  }
+}

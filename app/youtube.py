@@ -3,13 +3,15 @@ from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
-import secrets
+import tempfile
+import threading
 import time
 from urllib.parse import urlencode
 
 import requests
 
 SCOPE = 'https://www.googleapis.com/auth/youtube.upload'
+TOKEN_LOCK = threading.RLock()
 
 
 def configured():
@@ -32,13 +34,23 @@ def authorization_url(state):
 
 def save_tokens(path, tokens):
     path = Path(path)
-    tokens['expires_at'] = time.time() + int(tokens.get('expires_in', 3600)) - 60
-    tmp = path.with_suffix('.tmp')
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, 'w') as stream:
-        json.dump(tokens, stream)
-    tmp.replace(path)
-    path.chmod(0o600)
+    if not isinstance(tokens, dict) or not isinstance(tokens.get('access_token'), str) or not tokens['access_token']:
+        raise ValueError('Google geçerli bir erişim belirteci döndürmedi.')
+    try:
+        expiry = int(tokens.get('expires_in', 3600))
+    except (TypeError, ValueError):
+        raise ValueError('Google geçerli bir belirteç süresi döndürmedi.') from None
+    if expiry <= 0:
+        raise ValueError('Google geçerli bir belirteç süresi döndürmedi.')
+    saved = {**tokens, 'expires_at': time.time() + expiry - 60}
+    with TOKEN_LOCK:
+        fd, temporary = tempfile.mkstemp(prefix='.youtube-', suffix='.tmp', dir=path.parent)
+        try:
+            with os.fdopen(fd, 'w') as stream:
+                json.dump(saved, stream)
+            os.replace(temporary, path)
+        finally:
+            Path(temporary).unlink(missing_ok=True)
 
 
 def exchange(code, path):
@@ -48,16 +60,27 @@ def exchange(code, path):
         'redirect_uri': redirect_uri(), 'grant_type': 'authorization_code'}, timeout=(5, 30))
     response.raise_for_status()
     tokens = response.json()
-    if not tokens.get('access_token'):
+    if not isinstance(tokens, dict) or not tokens.get('access_token'):
         raise ValueError('Google erişim belirteci döndürmedi.')
     save_tokens(path, tokens)
 
 
 def access_token(path):
+    # Concurrent uploads share this account; refresh and persist its token only once.
+    with TOKEN_LOCK:
+        return _access_token(path)
+
+
+def _access_token(path):
     path = Path(path)
     if not path.exists():
         raise ValueError('Önce Ayarlar bölümünden YouTube hesabını bağlayın.')
-    tokens = json.loads(path.read_text())
+    try:
+        tokens = json.loads(path.read_text())
+    except (ValueError, OSError):
+        raise ValueError('YouTube bağlantı dosyası okunamadı. Hesabı yeniden bağlayın.') from None
+    if not isinstance(tokens, dict) or not isinstance(tokens.get('access_token'), str) or not tokens['access_token']:
+        raise ValueError('YouTube bağlantısı geçersiz. Hesabı yeniden bağlayın.')
     if tokens.get('expires_at', 0) > time.time():
         return tokens['access_token']
     if not tokens.get('refresh_token'):
@@ -67,6 +90,8 @@ def access_token(path):
         'refresh_token': tokens['refresh_token'], 'grant_type': 'refresh_token'}, timeout=(5, 30))
     response.raise_for_status()
     updated = response.json()
+    if not isinstance(updated, dict) or not updated.get('access_token'):
+        raise ValueError('Google yenilenmiş bir erişim belirteci döndürmedi. Mevcut bağlantı korunuyor; yeniden bağlanın.')
     updated['refresh_token'] = updated.get('refresh_token', tokens['refresh_token'])
     save_tokens(path, updated)
     return updated['access_token']
@@ -88,7 +113,13 @@ def upload(project, path, token_path, privacy='private'):
         location = start.headers.get('Location', '')
         # Only send access tokens to Google's upload host.
         from urllib.parse import urlparse
-        if urlparse(location).scheme != 'https' or urlparse(location).hostname not in {'www.googleapis.com', 'upload.youtube.com', 'youtube.googleapis.com'}:
+        try:
+            parsed = urlparse(location)
+            valid = (parsed.scheme == 'https' and parsed.hostname in {'www.googleapis.com', 'upload.youtube.com', 'youtube.googleapis.com'}
+                     and not parsed.username and not parsed.password and parsed.port in {None, 443})
+        except ValueError:
+            valid = False
+        if not valid:
             raise ValueError('Google güvenli bir yükleme adresi döndürmedi.')
         with path.open('rb') as stream:
             response = session.put(location, headers={**headers, 'Content-Type': 'video/mp4',

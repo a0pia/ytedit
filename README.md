@@ -18,7 +18,7 @@ HYPE_PYTHON="$(brew --prefix python@3.12)/bin/python3.12" ./scripts/setup.sh
 npm start
 ```
 
-`setup.sh` Python sanal ortamını oluşturur, Python ve kilitlenmiş Node bağımlılıklarını yükler, varsa mevcut `.env` dosyanızı korur. İlk kurulum paket indirmek için internet kullanır. Electron yerel Python sunucusunu başlatır ve ayrı bir masaüstü penceresi açar; pencere kapandığında kendisinin başlattığı sunucuyu durdurur. Zaten çalışan Hype Studio sunucusunu kullanırsa onu kapatmaz.
+`setup.sh` Python sanal ortamını oluşturur, Python ve kilitlenmiş Node bağımlılıklarını yükler, varsa mevcut `.env` dosyanızı korur. İlk kurulum paket indirmek için internet kullanır. Electron yerel Python sunucusunu başlatır ve ayrı bir masaüstü penceresi açar. Kuyrukta veya üretim/yükleme sırasında kapatırsanız onay ister; kendi başlattığı Python ve medya süreçlerini birlikte durdurur. Aynı proje, veri klasörü ve API sürümünü kullanan mevcut sunucuyu yeniden kullanabilir; başka sunucuları durdurmaz. Eski sunucu veya farklı veri klasörü aynı porttaysa açık bir hata verir.
 
 Sonraki açılışlarda `scripts/Start-Hype-Studio.command` dosyasına çift tıklayabilirsiniz. Terminal'den `npm start` da kullanılabilir. Bu sürüm kaynak kodundan çalışan bir Mac masaüstü uygulamasıdır; Python ve FFmpeg içeren, imzalanmış/noter onaylı bir DMG paketi henüz hazırlanmış değildir.
 
@@ -91,13 +91,14 @@ Port değiştirirseniz `.env` içindeki `YOUTUBE_REDIRECT_URI` değerini ve Goog
 - `ELEVENLABS_API_KEY`, `ELEVENLABS_VOICE_ID`: isteğe bağlı seslendirme API'si.
 - `YOUTUBE_CLIENT_ID`, `YOUTUBE_CLIENT_SECRET`, `YOUTUBE_REDIRECT_URI`: isteğe bağlı YouTube OAuth bilgileri.
 
-Electron başlatıcısının farklı bir Python kullanması gerekirse `HYPE_PYTHON` değişkenini Python çalıştırılabilir dosyasının **mutlak yoluna** ayarlayın. Varsayılan proje içindeki `.venv/bin/python` dosyasıdır. Sunucu günlüğü işletim sisteminin Electron günlük klasöründeki `hype-studio-backend.log` dosyasına yazılır.
+Kurulumda belirli bir Python seçmek için `HYPE_PYTHON` değişkenini Python 3.11+ çalıştırılabilir dosyasının yoluna ayarlayın. Aksi halde kurulum uygun Python sürümünü ve Mac’te Homebrew yollarını otomatik arar. Electron sunucu için mevcut proje `.venv/bin/python` dosyasını öncelikli kullanır; bu yoksa `HYPE_PYTHON` yedek seçenektir. Sunucu günlüğü işletim sisteminin Electron günlük klasöründeki `hype-studio-backend.log` dosyasına yazılır.
 
 ## Geliştirme ve doğrulama
 
 ```bash
 npm test
 npm run check:desktop
+npm run test:desktop
 ```
 
 Python sunucusu `app/`, masaüstü başlatıcısı `desktop/`, kurulum komutları `scripts/` altındadır. İlk açılışta paketler indirilir; daha sonraki yerel video üretimi için ücretli API gerekmez. Haber yenileme, model indirme ve YouTube yükleme internet kullanır. Kullanılan açık kaynak araçların lisansları kendi projelerine aittir.
@@ -106,4 +107,16 @@ Video oluşturma zaman alabilir; uygulamayı işlem bitene kadar açık tutun. A
 
 İsteğe bağlı gerçek tarayıcı kontrolü için önce sunucuyu başlatın; ayrı bir geliştirme ortamına `playwright==1.55.0` kurup `CHROMIUM_PATH` ile Chromium çalıştırılabilir dosyasını belirtin. `.venv/bin/python tests/ui_smoke.py` manuel taslak oluşturur, ücretsiz sesli video üretir, videonun 720×1280 olarak çözüldüğünü, SRT'yi ve yükleme onayını kontrol eder. Gerçek YouTube yüklemesi yapmaz. Başarılı çıktılar `artifacts/` altına ekran görüntüsü olarak kaydedilir.
 
-Bu geliştirme ortamında 84 otomatik test ve gerçek tarayıcı üretim akışı geçti. Canlı RSS erişimi bulut proxy politikası nedeniyle engellendi; Google hesabı verilmediğinden gerçek YouTube yüklemesi ve API anahtarı gerektiren servisler çalıştırılmadı. Mac masaüstü başlatıcısının sözdizimi kontrol edildi; macOS üzerinde çalışma testi henüz yapılmadı.
+Bu geliştirme ortamında 137 Python testi ve 7 masaüstü yaşam döngüsü testi geçti. Gerçek tarayıcıda ücretsiz sesli video üretimi, metadata düzenleme, taslak koruması, proje arama/çoğaltma/dışa aktarma/silme ve 15 ekran/boyut kombinasyonu doğrulandı. Canlı RSS erişimi bulut proxy politikası nedeniyle engellendi; Google hesabı verilmediğinden gerçek YouTube yüklemesi ve API anahtarı gerektiren servisler çalıştırılmadı. Mac masaüstü başlatıcısının sözdizimi kontrol edildi; macOS üzerinde çalışma testi henüz yapılmadı.
+
+## 0.2 sürümündeki iyileştirmeler
+
+- Mac penceresine sığan, içeride kaydırılan yönetim paneli; daha okunaklı yazılar ve kısa ekranlarda erişilebilir yan menü.
+- Projelerde arama ve durum filtresi; çoğaltma, JSON dışa aktarma ve onaylı silme. İşlenen projeler düzenlenemez veya silinemez.
+- Kaydedilmemiş değişiklikler için gezinme uyarısı. Açıklama/etiket düzenlemek mevcut videoyu korur; başlık veya seslendirme metni değişirse video yeniden üretilmelidir.
+- Tüm aktif işlerin takibi ve gerçek video kodlama ilerlemesi. Kapanışta kesilen işler sonraki açılışta açık hata durumuyla gösterilir.
+- Haber kaynaklarının ayrı sağlık durumları ve son tarama zamanı. Kısmi erişim hatalarında diğer kaynakların yedi günden yeni önbelleği korunur; takip parametreleriyle yinelenen bağlantılar ayıklanır. Puanlar hâlâ yaklaşık editoryal sıralamadır.
+- Eksik FFmpeg bileşeni ve ses kurulumu erken bildirilir. Türkçe kısaltmalarda daha doğal cümle bölme, uzun başlıkları sığdırma ve başarısız üretim dosyalarını temizleme.
+- Sonucu belirsiz YouTube yüklemesi için kanalı kontrol ettiğinize dair ayrı tekrar deneme onayı. Aynı hesabın eşzamanlı yüklemeleri erişim belirtecini güvenli biçimde paylaşır.
+
+Mevcut kurulumunuzu güncellemek için uygulamayı kapatın, proje klasöründe `git pull origin main` ve `./scripts/setup.sh` çalıştırıp `npm start` ile yeniden açın. Eski yerel sunucu arka planda açıksa önce onu durdurun. Yerel `.env`, projeler ve videolar korunur.

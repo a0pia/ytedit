@@ -1,11 +1,14 @@
 """Local Hype Studio server. Run with: python -m app.server."""
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from datetime import datetime, timezone
 import json
 import logging
 import os
 from pathlib import Path
+import re
 import secrets
+import shutil
 import sqlite3
 import threading
 import time
@@ -13,7 +16,7 @@ from urllib.parse import urlparse
 import uuid
 
 from dotenv import load_dotenv
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, jsonify, request, send_from_directory, Response
 import requests
 from werkzeug.exceptions import HTTPException
 
@@ -43,7 +46,7 @@ def create_app(data_dir=None, testing=False):
                       SESSION_COOKIE_SAMESITE='Lax', SESSION_COOKIE_HTTPONLY=True, DATA_DIR=data)
     database = data / 'studio.sqlite3'
     token_path = data / 'youtube-tokens.json'
-    pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix='studio')
+    pool = ThreadPoolExecutor(max_workers=3, thread_name_prefix='studio')
     jobs_lock = threading.Lock()
     active = set()
     render_slot = threading.Semaphore(1)
@@ -53,10 +56,15 @@ def create_app(data_dir=None, testing=False):
     oauth_lock = threading.Lock()
     ollama_cache = {'checked': 0, 'ready': False}
 
+    @contextmanager
     def connection():
         db = sqlite3.connect(database, timeout=15)
-        db.execute('PRAGMA journal_mode=WAL')
-        return db
+        try:
+            db.execute('PRAGMA journal_mode=WAL')
+            with db:
+                yield db
+        finally:
+            db.close()
 
     with connection() as db:
         db.execute('CREATE TABLE IF NOT EXISTS documents (kind TEXT, id TEXT, body TEXT, PRIMARY KEY(kind,id))')
@@ -64,7 +72,9 @@ def create_app(data_dir=None, testing=False):
         # A process restart cannot leave jobs pretending to run.
         for pid, body in db.execute("SELECT id,body FROM documents WHERE kind='project'"):
             project = json.loads(body)
-            if project.get('status') in {'rendering', 'uploading'}:
+            if project.get('status') in {'queued', 'rendering', 'uploading'}:
+                if project.get('status') == 'uploading':
+                    project['upload_uncertain'] = True
                 project.update(status='error', error='İşlem uygulama kapandığı için tamamlanamadı. Tekrar deneyin.')
                 db.execute("UPDATE documents SET body=? WHERE kind='project' AND id=?", (json.dumps(project), pid))
 
@@ -83,6 +93,31 @@ def create_app(data_dir=None, testing=False):
     def all_docs(kind):
         with connection() as db:
             return [json.loads(row[0]) for row in db.execute('SELECT body FROM documents WHERE kind=? ORDER BY rowid DESC', (kind,))]
+
+    def public_project(value):
+        return {key: item for key, item in value.items() if key not in {'video_path'}}
+
+    def cached_news():
+        result = []
+        for item in all_docs('news'):
+            stamp = item.get('published') or item.get('fetched_at')
+            try:
+                date = datetime.fromisoformat(stamp.replace('Z', '+00:00'))
+                if date.tzinfo is None:
+                    date = date.replace(tzinfo=timezone.utc)
+                if (datetime.now(timezone.utc) - date).total_seconds() > 7 * 86400:
+                    continue
+            except (ValueError, TypeError, AttributeError):
+                continue
+            result.append(item)
+        return sorted(result, key=lambda item: item['score'], reverse=True)
+
+    def news_state():
+        try:
+            return get('meta', 'news-refresh')
+        except ValueError:
+            return {'sources': [{'source': name, 'status': 'unknown', 'count': 0, 'error': None} for name, _ in news.FEEDS],
+                    'last_refreshed': None}
 
     def event(text, kind='info'):
         with connection() as db:
@@ -176,14 +211,17 @@ def create_app(data_dir=None, testing=False):
             except (requests.RequestException, ValueError, TypeError):
                 ollama_cache['ready'] = False
             ollama_cache['checked'] = time.monotonic()
-        return jsonify(app='hype-studio', **caps, ai=ollama_cache['ready'],
-                       youtube=token_path.exists(), youtube_configured=youtube.configured(),
-                       stats={'news': len(all_docs('news')), 'projects': len(projects),
-                              'ready': sum(bool(p.get('video_url')) for p in projects)},
+        return jsonify(app='hype-studio', api_version=2, project_root=str(ROOT), data_dir=str(data),
+                       **caps, ai=ollama_cache['ready'],
+                       youtube=token_path.exists() and youtube.configured(), youtube_configured=youtube.configured(),
+                       stats={'news': len(cached_news()), 'projects': len(projects),
+                              'ready': sum(p.get('status') == 'ready' and bool(p.get('video_url')) for p in projects),
+                              'active': sum(p.get('status') in {'queued', 'rendering', 'uploading'} for p in projects)},
                        providers={'tts': caps.get('provider', 'local'), 'ai': 'Şablon / isteğe bağlı Ollama'},
                        configured={'openai': bool(os.getenv('OPENAI_API_KEY')), 'anthropic': bool(os.getenv('ANTHROPIC_API_KEY')),
                                    'elevenlabs': bool(os.getenv('ELEVENLABS_API_KEY') and os.getenv('ELEVENLABS_VOICE_ID'))},
-                       warnings=[] if caps.get('tts') else ['Yerel ses motoru bulunamadı. Kurulum kılavuzuna bakın veya sessiz video seçin.'])
+                       warnings=([caps.get('ffmpeg_error') or 'FFmpeg kurulumu gerekli.'] if not caps.get('ffmpeg') else [])
+                       + ([caps.get('tts_error') or 'Yerel ses motoru bulunamadı. Kurulum kılavuzuna bakın veya sessiz video seçin.'] if not caps.get('tts') else []))
 
     @app.get('/api/activity')
     def activity():
@@ -193,7 +231,8 @@ def create_app(data_dir=None, testing=False):
 
     @app.get('/api/news')
     def news_list():
-        return jsonify(items=sorted(all_docs('news'), key=lambda item: item['score'], reverse=True), cached=True,
+        state = news_state()
+        return jsonify(items=cached_news(), cached=True, sources=state['sources'], last_refreshed=state['last_refreshed'],
                        warning='Puanlar güncellik ve anahtar kelimelerden hesaplanır; gerçek izlenme veya doğrulama puanı değildir.')
 
     @app.post('/api/news/refresh')
@@ -204,21 +243,41 @@ def create_app(data_dir=None, testing=False):
             if time.monotonic() - refresh_time[0] < 30:
                 return jsonify(error='Kaynakları korumak için taramalar arasında 30 saniye bekleyin.'), 429
             refresh_time[0] = time.monotonic()
-            items, warning = news.fetch_news()
+            fetched = news.fetch_news_detailed()
+            items, warning, sources = fetched['items'], fetched['warning'], fetched['sources']
+            successful = {entry['source'] for entry in sources if entry['status'] == 'ok'}
+            retained = [item for item in cached_news() if item['source'] not in successful]
+            merged = {item['id']: item for item in retained}
+            merged.update({item['id']: item for item in items})
+            refreshed = now()
+            with connection() as db:
+                db.execute("DELETE FROM documents WHERE kind='news'")
+                db.executemany('INSERT INTO documents VALUES(?,?,?)', [('news', item['id'], json.dumps(item, ensure_ascii=False)) for item in merged.values()])
+                db.execute('INSERT OR REPLACE INTO documents VALUES(?,?,?)', ('meta', 'news-refresh', json.dumps(
+                    {'id': 'news-refresh', 'sources': sources, 'last_refreshed': refreshed}, ensure_ascii=False)))
             if items:
-                with connection() as db:
-                    db.execute("DELETE FROM documents WHERE kind='news'")
-                    db.executemany('INSERT INTO documents VALUES(?,?,?)', [('news', item['id'], json.dumps(item, ensure_ascii=False)) for item in items])
                 event(f'{len(items)} güncel haber alındı.', 'success')
             else:
                 event('RSS kaynaklarından yeni haber alınamadı.', 'warning')
-            return jsonify(items=items or all_docs('news'), cached=not bool(items), warning=warning or ('Kaynaklar yanıt vermedi; kayıtlı haberler korunuyor.' if not items else 'Puanlar yaklaşık editoryal sıralamadır.'))
+            return jsonify(items=cached_news(), cached=bool(retained), sources=sources, last_refreshed=refreshed,
+                           warning=warning or ('Kaynaklar güncel haber döndürmedi.' if not items else 'Puanlar yaklaşık editoryal sıralamadır.'))
         finally:
             refresh_lock.release()
 
     @app.get('/api/projects')
     def projects():
-        return jsonify(items=all_docs('project'))
+        values = all_docs('project')
+        search = request.args.get('search', '').strip().casefold()
+        status = request.args.get('status', 'all')
+        if status not in {'all', 'draft', 'queued', 'rendering', 'ready', 'error', 'uploading', 'uploaded'}:
+            raise ValueError('Geçersiz proje durumu')
+        if search:
+            values = [p for p in values if search in ' '.join(str(p.get(key, '')) for key in ('title', 'script', 'source')).casefold()]
+        if status == 'uploaded':
+            values = [p for p in values if p.get('youtube_id')]
+        elif status != 'all':
+            values = [p for p in values if p.get('status') == status and (status != 'ready' or not p.get('youtube_id'))]
+        return jsonify(items=[public_project(p) for p in values])
 
     @app.post('/api/projects')
     def create_project():
@@ -232,7 +291,7 @@ def create_app(data_dir=None, testing=False):
             url = fields.get('url', '')
             if not isinstance(title, str) or not title.strip() or len(title) > 300 or not isinstance(summary, str) or len(summary) > 2000:
                 raise ValueError('Başlık gerekli (en fazla 300), özet en fazla 2000 karakter olmalı.')
-            if not isinstance(url, str) or len(url) > 2000 or (url and urlparse(url).scheme not in {'http', 'https'}):
+            if not isinstance(url, str) or len(url) > 2000 or (url and not news.canonical_url(url)):
                 raise ValueError('Geçerli bir kaynak bağlantısı kullanın.')
             if not isinstance(source, str) or len(source) > 100:
                 raise ValueError('Kaynak en fazla 100 karakter olmalı.')
@@ -243,11 +302,11 @@ def create_app(data_dir=None, testing=False):
                       status='draft', progress=0, created=now(), updated=now(), error=None)
         put('project', result)
         event(f'Taslak oluşturuldu: {result["title"]}', 'success')
-        return jsonify(result), 201
+        return jsonify(public_project(result)), 201
 
     @app.get('/api/projects/<ident>')
     def project_get(ident):
-        return jsonify(project(ident))
+        return jsonify(public_project(project(ident)))
 
     @app.patch('/api/projects/<ident>')
     def project_edit(ident):
@@ -256,19 +315,66 @@ def create_app(data_dir=None, testing=False):
             result = project(ident)
             if ident in active:
                 return jsonify(error='İşlem sürerken taslak düzenlenemez.'), 409
-            result.update(fields, updated=now())
-            if result.get('video_url'):
-                # Existing video is explicitly stale after editorial changes.
-                for key in ['video_url', 'subtitle_url', 'video_path', 'duration']:
+            changed = any(result.get(key) != value for key, value in fields.items())
+            changes_video = any(key in fields and result.get(key) != fields[key] for key in ('title', 'script'))
+            result.update(fields)
+            if changed:
+                result['updated'] = now()
+            if changes_video:
+                for key in ['video_url', 'subtitle_url', 'video_path', 'duration', 'render_options',
+                            'provider', 'voice', 'speech', 'subtitle_timing']:
                     result.pop(key, None)
                 result['status'] = 'draft'
+                result['progress'] = 0
             put('project', result)
-        return jsonify(result)
+        return jsonify(public_project(result))
+
+    @app.post('/api/projects/<ident>/duplicate')
+    def duplicate_project(ident):
+        original = project(ident)
+        keys = ('title', 'script', 'description', 'tags', 'source', 'source_url', 'generation_mode', 'editorial_note')
+        result = {key: original[key] for key in keys if key in original}
+        result.update(id=uuid.uuid4().hex, title=original['title'][:90] + ' — kopya', status='draft',
+                      progress=0, error=None, created=now(), updated=now())
+        put('project', result)
+        event(f'Proje kopyalandı: {result["title"]}', 'success')
+        return jsonify(public_project(result)), 201
+
+    @app.get('/api/projects/<ident>/export')
+    def export_project(ident):
+        original = project(ident)
+        keys = ('id', 'title', 'script', 'description', 'tags', 'source', 'source_url', 'generation_mode',
+                'editorial_note', 'created', 'updated')
+        export = {key: original[key] for key in keys if key in original}
+        export['schema_version'] = 1
+        return Response(json.dumps(export, ensure_ascii=False, indent=2), content_type='application/json; charset=utf-8',
+                        headers={'Content-Disposition': f'attachment; filename="hype-project-{original["id"]}.json"'})
+
+    @app.delete('/api/projects/<ident>')
+    def delete_project(ident):
+        with jobs_lock:
+            result = project(ident)
+            if ident in active:
+                return jsonify(error='İşlem sürerken proje silinemez.'), 409
+            if not re.fullmatch(r'[a-f0-9]{32}', ident):
+                raise ValueError('Geçersiz proje kimliği')
+            target = data / 'renders' / ident
+            # Never trust stored video_path for deletion and never follow a symlink.
+            if target.is_symlink():
+                target.unlink()
+            elif target.is_dir():
+                shutil.rmtree(target)
+            with connection() as db:
+                db.execute("DELETE FROM documents WHERE kind='project' AND id=?", (ident,))
+            event(f'Proje silindi: {result["title"]}')
+        return jsonify(ok=True)
 
     def render_job(ident, opts):
         try:
             with render_slot:
                 result = project(ident)
+                result.update(status='rendering', updated=now())
+                put('project', result)
                 def progress(value):
                     result.update(progress=value, updated=now())
                     put('project', result)
@@ -276,17 +382,22 @@ def create_app(data_dir=None, testing=False):
                 output = media.render(result, target, opts, progress)
                 video = Path(output['video_path']).resolve()
                 subtitle = Path(output['subtitle_path']).resolve()
+                result.update({key: output[key] for key in ('provider', 'voice', 'speech', 'subtitle_timing') if key in output})
                 result.update(status='ready', progress=100, error=None, duration=output['duration'],
                               video_path=str(video), video_url='/media/' + str(video.relative_to(data / 'renders')),
                               subtitle_url='/media/' + str(subtitle.relative_to(data / 'renders')),
                               render_options=opts, updated=now())
-                put('project', result)
+                with jobs_lock:
+                    put('project', result)
+                    active.discard(ident)
                 event(f'Video hazır: {result["title"]}', 'success')
         except Exception as exc:
             result = get('project', ident)
             message = str(exc) if isinstance(exc, (ValueError, media.MediaError)) else 'Video üretimi başarısız. FFmpeg ve yerel ses motorunu kontrol edin.'
             result.update(status='error', error=message[:500], updated=now())
-            put('project', result)
+            with jobs_lock:
+                put('project', result)
+                active.discard(ident)
             event(f'Video üretilemedi: {result["title"]}', 'error')
         finally:
             with jobs_lock:
@@ -297,7 +408,9 @@ def create_app(data_dir=None, testing=False):
         opts = body()
         if opts.get('style', 'aurora') not in {'aurora', 'sunset'} or opts.get('tts_provider', 'local') not in {'local', 'elevenlabs'} or not isinstance(opts.get('speech', True), bool):
             raise ValueError('Geçersiz video ayarları')
-        opts = {key: opts[key] for key in ('style', 'tts_provider', 'speech') if key in opts}
+        if 'speech_rate' in opts and (isinstance(opts['speech_rate'], bool) or not isinstance(opts['speech_rate'], int) or not 100 <= opts['speech_rate'] <= 240):
+            raise ValueError('Konuşma hızı 100 ile 240 arasında olmalı.')
+        opts = {key: opts[key] for key in ('style', 'tts_provider', 'speech', 'speech_rate') if key in opts}
         with jobs_lock:
             result = project(ident)
             if ident in active:
@@ -305,10 +418,10 @@ def create_app(data_dir=None, testing=False):
             if len(active) >= 3:
                 return jsonify(error='Üretim kuyruğu dolu. Bir işlemin bitmesini bekleyin.'), 429
             active.add(ident)
-            result.update(status='rendering', progress=0, error=None)
+            result.update(status='queued', progress=0, error=None)
             put('project', result)
             pool.submit(render_job, ident, opts)
-        return jsonify(result), 202
+        return jsonify(public_project(result)), 202
 
     @app.get('/media/<path:filename>')
     def media_file(filename):
@@ -345,6 +458,9 @@ def create_app(data_dir=None, testing=False):
 
     @app.post('/api/youtube/disconnect')
     def disconnect():
+        with jobs_lock:
+            if any(get('project', ident).get('status') == 'uploading' for ident in active):
+                return jsonify(error='Yükleme sürerken hesap bağlantısı kaldırılamaz.'), 409
         token_path.unlink(missing_ok=True)
         return jsonify(ok=True)
 
@@ -352,13 +468,18 @@ def create_app(data_dir=None, testing=False):
         try:
             result = get('project', ident)
             details = youtube.upload(result, result['video_path'], token_path, privacy)
-            result.update(**details, status='ready', error=None, updated=now())
-            put('project', result)
+            result.update(**details, status='ready', error=None, upload_uncertain=False, updated=now())
+            with jobs_lock:
+                put('project', result)
+                active.discard(ident)
             event(f'YouTube yüklemesi tamamlandı: {result["title"]}', 'success')
         except Exception:
             result = get('project', ident)
-            result.update(status='ready', error='YouTube yüklemesi doğrulanamadı. Yeniden denemeden önce YouTube Studio kanalını kontrol edin.', updated=now())
-            put('project', result)
+            result.update(status='ready', upload_uncertain=True,
+                          error='YouTube yüklemesi doğrulanamadı. Yeniden denemeden önce YouTube Studio kanalını kontrol edin.', updated=now())
+            with jobs_lock:
+                put('project', result)
+                active.discard(ident)
             event('YouTube yüklemesi doğrulanamadı; kanalınızı kontrol edin.', 'error')
         finally:
             with jobs_lock:
@@ -378,6 +499,11 @@ def create_app(data_dir=None, testing=False):
             result = project(ident)
             if ident in active:
                 return jsonify(error='Bu proje için işlem sürüyor.'), 409
+            if len(active) >= 3:
+                return jsonify(error='İşlem kuyruğu dolu. Bir işlemin bitmesini bekleyin.'), 429
+            if result.get('upload_uncertain') and opts.get('retry_confirmed') is not True:
+                return jsonify(error='Önce YouTube Studio kanalını kontrol edin. Tekrar yükleme için ayrıca onay gerekli.',
+                               requires_retry_confirmation=True), 409
             if not result.get('video_path') or not Path(result['video_path']).is_file():
                 raise ValueError('Önce videoyu üretin.')
             if result.get('youtube_id'):
@@ -386,7 +512,7 @@ def create_app(data_dir=None, testing=False):
             result.update(status='uploading', error=None)
             put('project', result)
             pool.submit(upload_job, ident, privacy)
-        return jsonify(result), 202
+        return jsonify(public_project(result)), 202
 
     return app
 

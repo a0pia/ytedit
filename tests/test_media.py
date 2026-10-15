@@ -8,7 +8,9 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from app.media import MediaError, _ass_escape, _subtitle_chunks, capabilities, render
+from app.media import (MediaError, _ass_escape, _ffmpeg_probe, _glyph_width,
+                       _local_engine, _sentences, _subtitle_chunks, _title_layout,
+                       capabilities, render)
 
 
 @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "FFmpeg is required")
@@ -38,6 +40,9 @@ class RenderTests(unittest.TestCase):
         self.assertEqual(result["subtitle_timing"], "estimated")
         self.assertEqual(progress[-1], 100)
         self.assertEqual(progress, sorted(progress))
+        self.assertTrue(any(65 < value < 98 for value in progress))
+        self.assertEqual({path.name for path in self.output.iterdir()},
+                         {"reel.mp4", "captions.srt", "captions.ass", "narration.wav"})
 
     def test_real_local_turkish_narration(self):
         if not capabilities()["tts"]:
@@ -72,6 +77,44 @@ class RenderTests(unittest.TestCase):
             render({"script": "a " * 300}, self.output, {"speech": False})
         self.assertFalse((self.output / "reel.mp4").exists())
 
+    def test_missing_subtitle_support_fails_before_voice_generation(self):
+        state = {"ready": False, "error": "libass destekli FFmpeg kurun.", "features": {"subtitles": False}}
+        with patch("app.media._ffmpeg_state", return_value=state), patch("app.media._speak") as speak:
+            with self.assertRaisesRegex(MediaError, "libass"):
+                render({"script": "Teknoloji."}, self.output)
+        speak.assert_not_called()
+        self.assertEqual(list(self.output.iterdir()), [])
+
+    def test_failed_encoding_removes_partial_media_and_keeps_user_files(self):
+        sentinel = self.output / "user-notes.txt"
+        sentinel.write_text("Preserve this file.")
+
+        def fail_encoding(_command, folder, *_args):
+            (folder / "reel.mp4").write_bytes(b"incomplete")
+            raise MediaError("Kodlama başarısız.")
+
+        with patch("app.media._encode", side_effect=fail_encoding):
+            with self.assertRaisesRegex(MediaError, "Kodlama başarısız"):
+                render({"script": "Merhaba dünya."}, self.output, {"speech": False})
+        self.assertEqual(list(self.output.iterdir()), [sentinel])
+        self.assertEqual(sentinel.read_text(), "Preserve this file.")
+
+    def test_existing_video_is_never_overwritten(self):
+        original = self.output / "reel.mp4"
+        original.write_bytes(b"existing video")
+        with self.assertRaisesRegex(MediaError, "daha önce"):
+            render({"script": "Merhaba dünya."}, self.output, {"speech": False})
+        self.assertEqual(original.read_bytes(), b"existing video")
+
+    def test_invalid_configured_voice_is_reported_before_render(self):
+        if not capabilities()["tts"]:
+            self.skipTest("No local voice installed")
+        with patch.dict(os.environ, {"LOCAL_TTS_VOICE": "this-voice-does-not-exist"}):
+            self.assertFalse(capabilities()["tts"])
+            with self.assertRaisesRegex(MediaError, "LOCAL_TTS_VOICE"):
+                render({"script": "Türkçe konuşuyoruz."}, self.output)
+        self.assertEqual(list(self.output.iterdir()), [])
+
 
 class SubtitleTests(unittest.TestCase):
     def test_long_words_wrap_and_ass_control_sequences_are_neutralized(self):
@@ -80,6 +123,72 @@ class SubtitleTests(unittest.TestCase):
         self.assertTrue(all(len(line) <= 27 for chunk in chunks for line in chunk.splitlines()))
         self.assertNotIn("{", _ass_escape(r"{\pos(0,0)}"))
         self.assertNotIn("\\", _ass_escape(r"{\pos(0,0)}"))
+
+    def test_news_abbreviations_decimals_initials_and_quotes_keep_sentence_boundaries(self):
+        script = 'Prof. Dr. A. Yılmaz, GPT-4.1 modelini inceledi. "3. nesil çip hazır!" Yeni bir dönem.'
+        self.assertEqual(_sentences(script), [
+            "Prof. Dr. A. Yılmaz, GPT-4.1 modelini inceledi.",
+            '"3. nesil çip hazır!"', "Yeni bir dönem."])
+
+    def test_wide_glyphs_fit_and_long_headlines_have_visible_truncation(self):
+        for text in ("W" * 100, "人工智能" * 20):
+            for chunk in _subtitle_chunks(text):
+                self.assertTrue(all(sum(map(_glyph_width, line)) <= 600 / 44 for line in chunk.splitlines()))
+        title = "Yapay zekâ artık cebimizde"
+        _, layout = _title_layout(title)
+        self.assertEqual(" ".join(layout.split()), title)
+        size, layout = _title_layout("Çok uzun bir teknoloji haberi " * 20)
+        self.assertLessEqual(len(layout.splitlines()), 4)
+        self.assertTrue(layout.endswith("…"))
+        self.assertTrue(all(sum(map(_glyph_width, line)) <= 570 / size for line in layout.splitlines()))
+
+
+class CapabilityTests(unittest.TestCase):
+    def test_mac_without_turkish_system_voice_uses_installed_espeak(self):
+        def which(name):
+            return {"say": "/usr/bin/say", "espeak-ng": "/opt/homebrew/bin/espeak-ng"}.get(name)
+
+        with patch("app.media.sys.platform", "darwin"), patch("app.media.shutil.which", side_effect=which), \
+                patch("app.media._say_voices", return_value=()), patch("app.media._espeak_voice_error", return_value=""), \
+                patch.dict(os.environ, {"LOCAL_TTS_VOICE": ""}):
+            engine = _local_engine()
+        self.assertEqual(engine["binary"], "/opt/homebrew/bin/espeak-ng")
+        self.assertEqual(engine["voice"], "tr")
+        self.assertFalse(engine["error"])
+
+    def test_requested_mac_voice_must_be_installed(self):
+        with patch("app.media.sys.platform", "darwin"), patch("app.media.shutil.which", return_value="/usr/bin/say"), \
+                patch("app.media._say_voices", return_value=("Yelda",)), \
+                patch.dict(os.environ, {"LOCAL_TTS_VOICE": "Olmayan"}):
+            engine = _local_engine()
+        self.assertIsNone(engine["binary"])
+        self.assertIn("LOCAL_TTS_VOICE", engine["error"])
+
+    def test_extracted_arm_libraries_are_detected_without_an_x86_path(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "usr/bin").mkdir(parents=True)
+            (root / "usr/bin/espeak-ng").touch()
+            data = root / "usr/lib/aarch64-linux-gnu/espeak-ng-data"
+            data.mkdir(parents=True)
+            with patch("app.media.sys.platform", "linux"), patch("app.media.shutil.which", return_value=None), \
+                    patch("app.media._espeak_voice_error", return_value=""), \
+                    patch.dict(os.environ, {"LOCAL_TTS_ROOT": str(root), "LOCAL_TTS_VOICE": ""}):
+                engine = _local_engine()
+            self.assertEqual(engine["env"]["ESPEAK_DATA_PATH"], str(data))
+            self.assertIn("aarch64-linux-gnu", engine["env"]["LD_LIBRARY_PATH"])
+
+    def test_ffmpeg_missing_libass_is_actionable_and_probe_is_cached(self):
+        _ffmpeg_probe.cache_clear()
+        self.addCleanup(_ffmpeg_probe.cache_clear)
+        outputs = [b" V....D libx264 H.264\n A....D aac AAC\n", b" ... zoompan V->V Zoom\n", b"ffprobe version"]
+        with patch("app.media._run", side_effect=[subprocess.CompletedProcess([], 0, stdout=value) for value in outputs]) as run:
+            first = _ffmpeg_probe("/fake/ffmpeg", (), "/fake/ffprobe", ())
+            second = _ffmpeg_probe("/fake/ffmpeg", (), "/fake/ffprobe", ())
+        self.assertFalse(first["ready"])
+        self.assertIn("libass", first["error"])
+        self.assertEqual(first, second)
+        self.assertEqual(run.call_count, 3)
 
 
 if __name__ == "__main__":

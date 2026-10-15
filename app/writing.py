@@ -15,7 +15,10 @@ def template(article):
     title = article['title'][:95]
     summary = article.get('summary', '').strip()
     # Preserve source wording rather than fabricate an ungrounded Turkish translation.
-    script = f"{title}. {summary}".strip()[:900]
+    heading = title if title.endswith(('.', '!', '?', '…')) else title + '.'
+    script = f'{heading} {summary}'.strip()
+    if len(script) > 900:
+        script = script[:897].rsplit(' ', 1)[0].rstrip('.,;:') + '…'
     return dict(title=title, script=script,
                 description=f"{title}\n\nKaynak: {article.get('source', 'Manuel')}\n{article.get('url', '')}\n\n#Shorts #Teknoloji",
                 tags=['Shorts', 'Teknoloji'], generation_mode='template',
@@ -53,16 +56,26 @@ def generate(article, mode):
         content = response.json()['content'][0]['text']
     else:
         raise ValueError('Bilinmeyen senaryo sağlayıcısı')
+    if not isinstance(content, str) or not content.strip():
+        raise ValueError('Model boş bir yanıt döndürdü. Yeniden deneyin veya metni elle düzenleyin.')
     content = re.sub(r'^```(?:json)?\s*|\s*```$', '', content.strip())
-    result = json.loads(content)
+    try:
+        result = json.loads(content)
+    except (json.JSONDecodeError, TypeError):
+        raise ValueError('Model geçerli JSON döndürmedi. Yeniden deneyin veya metni elle düzenleyin.') from None
+    if not isinstance(result, dict):
+        raise ValueError('Model geçerli bir senaryo nesnesi döndürmedi.')
     for field, limit in [('title', 100), ('script', 1200), ('description', 4500)]:
         if not isinstance(result.get(field), str) or not result[field].strip() or len(result[field]) > limit:
             raise ValueError('Model geçerli uzunlukta bir senaryo döndürmedi. Metni elle düzenleyin.')
-    if not isinstance(result.get('tags'), list) or any(not isinstance(t, str) or len(t) > 60 for t in result['tags']) or len(result['tags']) > 12:
+    if not isinstance(result.get('tags'), list) or any(not isinstance(t, str) or not t.strip() or len(t) > 60 for t in result['tags']) or len(result['tags']) > 12 or sum(map(len, result['tags'])) > 450:
         raise ValueError('Model geçerli etiketler döndürmedi.')
     url = article.get('url', '')
     if url and url not in result['description']:
-        result['description'] += '\n\nKaynak: ' + url
+        citation = '\n\nKaynak: ' + url
+        result['description'] = result['description'][:4500 - len(citation)] + citation
+    # Models may return additional keys; never let them become IDs, paths or job state.
+    result = {key: result[key] for key in ('title', 'script', 'description', 'tags')}
     result['generation_mode'] = mode
     result['editorial_note'] = 'Model taslağıdır. İddiaları ve çeviriyi kaynakla karşılaştırın.'
     return result

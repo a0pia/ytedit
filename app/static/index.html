@@ -30,18 +30,26 @@
         </div>
         <p class="nav-label">ÇALIŞMA ALANI</p>
         <nav class="navigation">
-          <button class="nav-item active" data-view="dashboard">
+          <button
+            class="nav-item active"
+            data-view="dashboard"
+            aria-label="Genel bakış"
+          >
             <span data-icon="grid"></span>Genel bakış
           </button>
-          <button class="nav-item" data-view="news">
+          <button class="nav-item" data-view="news" aria-label="Haber keşfi">
             <span data-icon="compass"></span>Haber keşfi<span
               class="nav-dot"
             ></span>
           </button>
-          <button class="nav-item" data-view="studio">
+          <button
+            class="nav-item"
+            data-view="studio"
+            aria-label="Video stüdyosu"
+          >
             <span data-icon="film"></span>Video stüdyosu
           </button>
-          <button class="nav-item" data-view="videos">
+          <button class="nav-item" data-view="videos" aria-label="Videolarım">
             <span data-icon="folder"></span>Videolarım<span
               class="nav-count"
               id="nav-project-count"
@@ -68,7 +76,11 @@
             <p>Yerel araçlarla üret.<br />Abonelik gerektirmez.</p>
             <span class="small-label"><i></i> Ücretsiz yerel mod</span>
           </div>
-          <button class="nav-item" data-view="settings">
+          <button
+            class="nav-item"
+            data-view="settings"
+            aria-label="Bağlantılar ve ayarlar"
+          >
             <span data-icon="sliders"></span>Bağlantılar ve ayarlar
           </button>
           <div class="profile">
@@ -130,7 +142,11 @@
                       Haberini seç, senaryonu düzenle.<br />Videonu hazırla ve
                       yayınını yönet.
                     </p>
-                    <button class="button button-dark" data-view="news">
+                    <button
+                      class="button button-dark"
+                      data-view="news"
+                      aria-label="Haber keşfi"
+                    >
                       Haberleri keşfet<span
                         data-icon="arrow-up-right"
                       ></span></button
@@ -170,7 +186,11 @@
                   <span class="small-label">ÇALIŞMA ALANIN</span>
                 </div>
                 <div class="stats-grid">
-                  <button class="stat-card stat-yellow" data-view="news">
+                  <button
+                    class="stat-card stat-yellow"
+                    data-view="news"
+                    aria-label="Haber keşfi"
+                  >
                     <div class="stat-top">
                       <span>KEŞFEDİLEN HABER</span
                       ><span data-icon="arrow-up-right"></span>
@@ -180,7 +200,11 @@
                       ><strong id="stat-news">0</strong>
                     </div>
                     <p>Kaynak akışındaki güncel haberler</p></button
-                  ><button class="stat-card stat-orange" data-view="videos">
+                  ><button
+                    class="stat-card stat-orange"
+                    data-view="videos"
+                    aria-label="Videolarım"
+                  >
                     <div class="stat-top">
                       <span>VİDEO PROJESİ</span
                       ><span data-icon="arrow-up-right"></span>
@@ -190,7 +214,11 @@
                       ><strong id="stat-projects">0</strong>
                     </div>
                     <p>Taslaklar ve üretilen videolar</p></button
-                  ><button class="stat-card stat-purple" data-view="videos">
+                  ><button
+                    class="stat-card stat-purple"
+                    data-view="videos"
+                    aria-label="Videolarım"
+                  >
                     <div class="stat-top">
                       <span>YAYINA HAZIR</span
                       ><span data-icon="arrow-up-right"></span>
@@ -201,7 +229,11 @@
                     </div>
                     <p>Önizlemeye ve yüklemeye hazır</p>
                   </button>
-                  <button class="stat-card stat-lime" data-view="settings">
+                  <button
+                    class="stat-card stat-lime"
+                    data-view="settings"
+                    aria-label="Bağlantılar ve ayarlar"
+                  >
                     <div class="stat-top">
                       <span>ÜRETİM MODU</span
                       ><span data-icon="arrow-up-right"></span>
@@ -212,7 +244,11 @@
                     </div>
                     <p>Ücretsiz araçlarla üretim</p>
                   </button>
-                  <button class="stat-card stat-cyan" data-view="studio">
+                  <button
+                    class="stat-card stat-cyan"
+                    data-view="studio"
+                    aria-label="Video stüdyosu"
+                  >
                     <div class="stat-top">
                       <span>VİDEO FORMATI</span
                       ><span data-icon="arrow-up-right"></span>
@@ -225,7 +261,11 @@
                 </div>
                 <div class="section-heading">
                   <h2>Haber akışı<span class="section-dot"></span></h2>
-                  <button class="text-button" data-view="news">
+                  <button
+                    class="text-button"
+                    data-view="news"
+                    aria-label="Haber keşfi"
+                  >
                     Tüm haberler<span data-icon="arrow-right"></span>
                   </button>
                 </div>
@@ -315,7 +355,11 @@
                     ><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i
                     ><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
                   </div>
-                  <button class="text-button" data-view="settings">
+                  <button
+                    class="text-button"
+                    data-view="settings"
+                    aria-label="Bağlantılar ve ayarlar"
+                  >
                     Ses seçenekleri<span data-icon="arrow-up-right"></span>
                   </button>
                 </section>
@@ -336,6 +380,14 @@
                 <span data-icon="refresh"></span>Kaynakları yenile
               </button>
             </div>
+            <div
+              class="source-health"
+              id="source-health"
+              aria-label="Haber kaynaklarının durumu"
+            ></div>
+            <p class="refresh-meta" id="news-refreshed" role="status">
+              Henüz yenileme bilgisi yok.
+            </p>
             <div class="notice">
               <span data-icon="info"></span>
               <p>
@@ -385,7 +437,11 @@
               <div class="empty-actions">
                 <button class="button button-light" data-action="new-project">
                   Bir fikirle başla<span data-icon="arrow-right"></span></button
-                ><button class="button button-outline" data-view="news">
+                ><button
+                  class="button button-outline"
+                  data-view="news"
+                  aria-label="Haber keşfi"
+                >
                   Haberleri keşfet
                 </button>
               </div>
@@ -394,7 +450,16 @@
               <form id="editor-form" class="editor-panel">
                 <div class="section-heading">
                   <h2>Hikâyenin detayları</h2>
-                  <span id="editor-status" class="project-status">Taslak</span>
+                  <div class="editor-toolbar">
+                    <span
+                      class="dirty-indicator"
+                      id="dirty-indicator"
+                      role="status"
+                      >Kaydedildi</span
+                    ><span id="editor-status" class="project-status"
+                      >Taslak</span
+                    >
+                  </div>
                 </div>
                 <label class="field-label" for="edit-title">Video başlığı</label
                 ><input
@@ -560,6 +625,24 @@
               <button class="button button-light" data-action="new-project">
                 <span data-icon="plus"></span>Yeni video
               </button>
+            </div>
+            <div class="project-toolbar">
+              <label class="search-box"
+                ><span data-icon="search"></span
+                ><input
+                  id="project-search"
+                  type="search"
+                  placeholder="Projelerde ara…"
+                  aria-label="Projelerde ara" /></label
+              ><label class="filter-label" for="project-filter">Durum</label
+              ><select id="project-filter" class="text-input">
+                <option value="all">Tüm projeler</option>
+                <option value="draft">Taslak</option>
+                <option value="rendering">Hazırlanıyor</option>
+                <option value="ready">Yayına hazır</option>
+                <option value="error">Başarısız</option>
+                <option value="uploaded">YouTube'a yüklendi</option></select
+              ><span class="refresh-meta" id="project-result-count"></span>
             </div>
             <div id="projects-grid" class="projects-grid"></div>
           </section>
@@ -768,6 +851,13 @@
             onaylıyorum.</span
           ></label
         >
+        <label class="checkbox-label" id="upload-retry-row" hidden
+          ><input type="checkbox" id="upload-retry-confirm" /><span
+            >Önceki yükleme doğrulanamadı. YouTube Studio'yu kontrol ettim;
+            videonun kanala eklenmediğini doğruladım ve yeniden yüklemeyi
+            onaylıyorum.</span
+          ></label
+        >
         <div id="upload-error" class="inline-warning" hidden></div>
         <button
           class="button button-light full-width"
@@ -777,6 +867,32 @@
           <span data-icon="youtube"></span>Onayla ve yükle
         </button>
       </form>
+    </dialog>
+    <dialog
+      id="confirm-dialog"
+      aria-labelledby="confirm-title"
+      aria-describedby="confirm-message"
+    >
+      <div class="dialog-header">
+        <span class="eyebrow">PROJE YÖNETİMİ</span
+        ><button
+          type="button"
+          class="icon-button"
+          id="confirm-close"
+          aria-label="Onay penceresini kapat"
+        >
+          <span data-icon="x"></span>
+        </button>
+      </div>
+      <h2 id="confirm-title">Emin misin?</h2>
+      <p id="confirm-message"></p>
+      <div class="dialog-actions">
+        <button type="button" class="button button-outline" id="confirm-cancel">
+          Vazgeç</button
+        ><button type="button" class="button button-light" id="confirm-accept">
+          Onayla
+        </button>
+      </div>
     </dialog>
     <div id="toast" class="toast" role="status" hidden></div>
   </body>

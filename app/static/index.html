@@ -1,0 +1,783 @@
+<!doctype html>
+<html lang="tr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#181c20" />
+    <title>Hype Studio · Üretim merkezi</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+    <script src="/static/app.js" defer></script>
+  </head>
+  <body>
+    <div class="ambient ambient-one"></div>
+    <div class="ambient ambient-two"></div>
+    <div class="app-window">
+      <aside class="sidebar" aria-label="Ana gezinme">
+        <div class="window-controls" aria-label="macOS pencere görünümü">
+          <i></i><i></i><i></i>
+        </div>
+        <a class="brand" href="#dashboard" aria-label="Hype Studio ana sayfa"
+          ><span class="brand-mark">h<span>✦</span></span
+          ><span
+            >hype<span class="brand-light">studio</span
+            ><small>İÇERİK YÖNETİMİ</small></span
+          ></a
+        >
+        <div class="workspace-picker">
+          <span class="workspace-avatar">S</span
+          ><span>Kişisel stüdyo<small>Yerel çalışma alanı</small></span
+          ><span class="picker-chevron">⌄</span>
+        </div>
+        <p class="nav-label">ÇALIŞMA ALANI</p>
+        <nav class="navigation">
+          <button class="nav-item active" data-view="dashboard">
+            <span data-icon="grid"></span>Genel bakış
+          </button>
+          <button class="nav-item" data-view="news">
+            <span data-icon="compass"></span>Haber keşfi<span
+              class="nav-dot"
+            ></span>
+          </button>
+          <button class="nav-item" data-view="studio">
+            <span data-icon="film"></span>Video stüdyosu
+          </button>
+          <button class="nav-item" data-view="videos">
+            <span data-icon="folder"></span>Videolarım<span
+              class="nav-count"
+              id="nav-project-count"
+              >0</span
+            >
+          </button>
+        </nav>
+        <div class="sidebar-collection">
+          <p class="nav-label">STÜDYO REHBERİ</p>
+          <div class="collection-line">
+            <i class="dot-lime"></i>Haberden hikâyeye
+          </div>
+          <div class="collection-line">
+            <i class="dot-purple"></i>9:16 dikey videolar
+          </div>
+          <div class="collection-line">
+            <i class="dot-orange"></i>Türkçe seslendirme
+          </div>
+        </div>
+        <div class="sidebar-bottom">
+          <div class="local-note">
+            <span class="local-spark">✧</span
+            ><strong>Senin fikrin. Senin stüdyon.</strong>
+            <p>Yerel araçlarla üret.<br />Abonelik gerektirmez.</p>
+            <span class="small-label"><i></i> Ücretsiz yerel mod</span>
+          </div>
+          <button class="nav-item" data-view="settings">
+            <span data-icon="sliders"></span>Bağlantılar ve ayarlar
+          </button>
+          <div class="profile">
+            <span class="profile-avatar">S</span
+            ><span>İçerik üreticisi<small>Kişisel çalışma alanı</small></span
+            ><span data-icon="chevrons"></span>
+          </div>
+        </div>
+      </aside>
+      <main class="main-panel">
+        <header class="topbar">
+          <div class="breadcrumb">
+            Çalışma alanı<span>/</span
+            ><strong id="breadcrumb-current">Genel bakış</strong>
+          </div>
+          <div class="topbar-actions">
+            <span class="local-pill"><i></i> Yerel mod</span
+            ><button
+              class="icon-button"
+              id="refresh-all"
+              aria-label="Stüdyo durumunu yenile"
+              title="Yenile"
+            >
+              <span data-icon="refresh"></span></button
+            ><span class="header-avatar">S</span>
+          </div>
+        </header>
+        <div
+          id="system-message"
+          class="system-message"
+          role="status"
+          hidden
+        ></div>
+        <div class="page-content" id="page-content">
+          <section class="view" id="view-dashboard">
+            <div class="page-heading">
+              <div>
+                <p class="eyebrow"><span></span> YÖNETİM PANELİ</p>
+                <h1>Üretim merkezi<span class="heading-period">.</span></h1>
+                <p>
+                  Haber akışını, video projelerini ve yayınlarını tek yerden
+                  yönet.
+                </p>
+              </div>
+              <button class="button button-light" data-action="new-project">
+                <span data-icon="plus"></span>Yeni video
+              </button>
+            </div>
+            <div class="dashboard-layout">
+              <div class="dashboard-main">
+                <section class="hero-card">
+                  <div class="hero-copy">
+                    <span class="hero-tag"
+                      ><span data-icon="sparkles"></span> HYPE STUDIO / KONTROL
+                      ALANI</span
+                    >
+                    <h2>Gündemden<br /><em>ekrana.</em></h2>
+                    <p>
+                      Haberini seç, senaryonu düzenle.<br />Videonu hazırla ve
+                      yayınını yönet.
+                    </p>
+                    <button class="button button-dark" data-view="news">
+                      Haberleri keşfet<span
+                        data-icon="arrow-up-right"
+                      ></span></button
+                    ><span class="hero-bottom"
+                      >9:16 format <i>·</i> Otomatik altyazı <i>·</i> Yerel
+                      ses</span
+                    >
+                  </div>
+                  <div class="hero-art" aria-hidden="true">
+                    <div class="orb orb-one"></div>
+                    <div class="orb orb-two"></div>
+                    <div class="orbit orbit-one"></div>
+                    <div class="orbit orbit-two"></div>
+                    <div class="floating-label label-top">
+                      <i></i> DİKEY VİDEO STÜDYOSU
+                    </div>
+                    <div class="mini-film">
+                      <span class="mini-film-top">HYPE ORIGINALS <b>✦</b></span>
+                      <div class="mini-asterisk">✳</div>
+                      <span class="mini-film-title"
+                        >Gelecek<br />şimdi başlıyor.</span
+                      >
+                      <div class="mini-film-bottom">
+                        <span>TEKNOLOJİ / HİKÂYELER</span><span>00:30</span>
+                      </div>
+                    </div>
+                    <div class="floating-play">
+                      <span data-icon="play"></span>
+                    </div>
+                    <div class="floating-label label-bottom">
+                      <span data-icon="wave"></span> Türkçe seslendirme
+                    </div>
+                  </div>
+                </section>
+                <div class="section-heading overview-heading">
+                  <h2>Üretim özeti</h2>
+                  <span class="small-label">ÇALIŞMA ALANIN</span>
+                </div>
+                <div class="stats-grid">
+                  <button class="stat-card stat-yellow" data-view="news">
+                    <div class="stat-top">
+                      <span>KEŞFEDİLEN HABER</span
+                      ><span data-icon="arrow-up-right"></span>
+                    </div>
+                    <div class="stat-value">
+                      <span data-icon="compass"></span
+                      ><strong id="stat-news">0</strong>
+                    </div>
+                    <p>Kaynak akışındaki güncel haberler</p></button
+                  ><button class="stat-card stat-orange" data-view="videos">
+                    <div class="stat-top">
+                      <span>VİDEO PROJESİ</span
+                      ><span data-icon="arrow-up-right"></span>
+                    </div>
+                    <div class="stat-value">
+                      <span data-icon="film"></span
+                      ><strong id="stat-projects">0</strong>
+                    </div>
+                    <p>Taslaklar ve üretilen videolar</p></button
+                  ><button class="stat-card stat-purple" data-view="videos">
+                    <div class="stat-top">
+                      <span>YAYINA HAZIR</span
+                      ><span data-icon="arrow-up-right"></span>
+                    </div>
+                    <div class="stat-value">
+                      <span data-icon="check-circle"></span
+                      ><strong id="stat-ready">0</strong>
+                    </div>
+                    <p>Önizlemeye ve yüklemeye hazır</p>
+                  </button>
+                  <button class="stat-card stat-lime" data-view="settings">
+                    <div class="stat-top">
+                      <span>ÜRETİM MODU</span
+                      ><span data-icon="arrow-up-right"></span>
+                    </div>
+                    <div class="stat-value">
+                      <span data-icon="leaf"></span
+                      ><strong class="stat-text-value">Yerel</strong>
+                    </div>
+                    <p>Ücretsiz araçlarla üretim</p>
+                  </button>
+                  <button class="stat-card stat-cyan" data-view="studio">
+                    <div class="stat-top">
+                      <span>VİDEO FORMATI</span
+                      ><span data-icon="arrow-up-right"></span>
+                    </div>
+                    <div class="stat-value">
+                      <span data-icon="film"></span><strong>9:16</strong>
+                    </div>
+                    <p>Shorts ve Reels için dikey</p>
+                  </button>
+                </div>
+                <div class="section-heading">
+                  <h2>Haber akışı<span class="section-dot"></span></h2>
+                  <button class="text-button" data-view="news">
+                    Tüm haberler<span data-icon="arrow-right"></span>
+                  </button>
+                </div>
+                <div id="dashboard-news" class="news-preview-list">
+                  <div class="loading-state">
+                    <span class="spinner"></span>Haber kaynakları yükleniyor…
+                  </div>
+                </div>
+                <div class="subtle-footer">
+                  <span data-icon="leaf"></span> Ücretsiz yerel üretim ·
+                  Kaynaklar senin kontrolünde.
+                </div>
+              </div>
+              <aside class="right-rail">
+                <section class="activity-panel">
+                  <div class="section-heading">
+                    <h2>Son işlemler</h2>
+                    <span data-icon="activity"></span>
+                  </div>
+                  <div id="activity-list">
+                    <p class="quiet-empty">
+                      Henüz bir hareket yok. Yeni bir hikâyeyle başla.
+                    </p>
+                  </div>
+                </section>
+                <section class="flow-panel">
+                  <div class="section-heading">
+                    <h2>Üretim adımları</h2>
+                    <span class="small-label">3 ADIM</span>
+                  </div>
+                  <p class="rail-description">
+                    Yeni bir projeyi adım adım yayına hazırla.
+                  </p>
+                  <div class="flow-step">
+                    <div class="step-icon step-yellow">
+                      <span data-icon="compass"></span>
+                    </div>
+                    <div>
+                      <strong>İlhamını bul</strong>
+                      <p>Kaynakları incele, haberini seç.</p>
+                    </div>
+                    <span class="step-number">01</span>
+                  </div>
+                  <div class="flow-connector"></div>
+                  <div class="flow-step">
+                    <div class="step-icon step-purple">
+                      <span data-icon="magic"></span>
+                    </div>
+                    <div>
+                      <strong>Hikâyeni oluştur</strong>
+                      <p>Senaryo, ses ve altyazı ekle.</p>
+                    </div>
+                    <span class="step-number">02</span>
+                  </div>
+                  <div class="flow-connector"></div>
+                  <div class="flow-step">
+                    <div class="step-icon step-lime">
+                      <span data-icon="upload"></span>
+                    </div>
+                    <div>
+                      <strong>Yayına hazırla</strong>
+                      <p>Önizle, onayla ve paylaş.</p>
+                    </div>
+                    <span class="step-number">03</span>
+                  </div>
+                  <button
+                    class="button button-outline full-width"
+                    data-action="new-project"
+                  >
+                    Yeni proje aç<span data-icon="arrow-right"></span>
+                  </button>
+                </section>
+                <section class="engine-card">
+                  <div class="engine-top">
+                    <span class="engine-icon"
+                      ><span data-icon="audio"></span></span
+                    ><span class="status-tag" id="engine-state"
+                      >Kontrol ediliyor</span
+                    >
+                  </div>
+                  <h3>Stüdyonun sesi</h3>
+                  <p>
+                    Ücretsiz yerel seslendirme ile<br />hikâyeni duyulur kıl.
+                  </p>
+                  <div class="waveform" aria-hidden="true">
+                    <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i
+                    ><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i
+                    ><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+                  </div>
+                  <button class="text-button" data-view="settings">
+                    Ses seçenekleri<span data-icon="arrow-up-right"></span>
+                  </button>
+                </section>
+              </aside>
+            </div>
+          </section>
+          <section class="view" id="view-news" hidden>
+            <div class="page-heading">
+              <div>
+                <p class="eyebrow"><span></span> MERAK ETMEYE DEVAM ET</p>
+                <h1>Bir hikâye <em>yakala.</em></h1>
+                <p>
+                  Teknoloji kaynaklarından haberler. Seç, oku ve kendi
+                  anlatımını oluştur.
+                </p>
+              </div>
+              <button class="button button-light" id="refresh-news">
+                <span data-icon="refresh"></span>Kaynakları yenile
+              </button>
+            </div>
+            <div class="notice">
+              <span data-icon="info"></span>
+              <p>
+                İlgi puanı; haberin güncelliği ve başlığından hesaplanan bir
+                tahmindir. Haberlerin doğruluğunu ve kullanım haklarını
+                kaynaklarından kontrol et.
+              </p>
+            </div>
+            <div class="filter-row">
+              <div class="filter-tabs" id="news-filters">
+                <button class="active" data-filter="all">Tümü</button
+                ><button data-filter="ai">Yapay zekâ</button
+                ><button data-filter="tech">Teknoloji</button>
+              </div>
+              <label class="search-box"
+                ><span data-icon="search"></span
+                ><input
+                  id="news-search"
+                  type="search"
+                  placeholder="Bir konu ara…"
+                  aria-label="Haberlerde ara"
+              /></label>
+            </div>
+            <div id="news-warning" class="inline-warning" hidden></div>
+            <div class="news-grid" id="news-grid"></div>
+          </section>
+          <section class="view" id="view-studio" hidden>
+            <div class="page-heading">
+              <div>
+                <p class="eyebrow"><span></span> YARATICILIĞI AÇ</p>
+                <h1>Hikâyeni <em>şekillendir.</em></h1>
+                <p>Senaryo, ses ve altyazılar. Hepsi aynı çalışma alanında.</p>
+              </div>
+              <button class="button button-light" data-action="new-project">
+                <span data-icon="plus"></span>Yeni proje
+              </button>
+            </div>
+            <div id="studio-empty" class="large-empty">
+              <div class="empty-art">
+                <span data-icon="film"></span><i>✦</i>
+              </div>
+              <h2>İlk karenin öncesindesin.</h2>
+              <p>
+                Bir haber seç veya kendi fikrini yaz.<br />Ücretsiz yerel
+                araçlarla ilk videonu oluşturalım.
+              </p>
+              <div class="empty-actions">
+                <button class="button button-light" data-action="new-project">
+                  Bir fikirle başla<span data-icon="arrow-right"></span></button
+                ><button class="button button-outline" data-view="news">
+                  Haberleri keşfet
+                </button>
+              </div>
+            </div>
+            <div id="studio-editor" class="studio-layout" hidden>
+              <form id="editor-form" class="editor-panel">
+                <div class="section-heading">
+                  <h2>Hikâyenin detayları</h2>
+                  <span id="editor-status" class="project-status">Taslak</span>
+                </div>
+                <label class="field-label" for="edit-title">Video başlığı</label
+                ><input
+                  class="text-input"
+                  id="edit-title"
+                  maxlength="100"
+                  required
+                  placeholder="Merak uyandıran bir başlık"
+                />
+                <div class="label-with-meta">
+                  <label class="field-label" for="edit-script"
+                    >Seslendirme metni</label
+                  ><span id="script-word-count">0 kelime</span>
+                </div>
+                <textarea
+                  class="text-input script-input"
+                  id="edit-script"
+                  required
+                  placeholder="Hikâyeni burada anlat…"
+                ></textarea
+                ><label class="field-label" for="edit-description"
+                  >YouTube açıklaması</label
+                ><textarea
+                  class="text-input"
+                  id="edit-description"
+                  rows="4"
+                ></textarea
+                ><label class="field-label" for="edit-tags"
+                  >Etiketler <span>(virgülle ayır)</span></label
+                ><input
+                  class="text-input"
+                  id="edit-tags"
+                  placeholder="teknoloji, yapayzeka, shorts"
+                />
+                <div id="editor-source" class="source-reference"></div>
+                <div class="editor-bottom">
+                  <span class="muted-text"
+                    >Değişikliklerini render öncesi kaydet.</span
+                  ><button
+                    class="button button-outline"
+                    type="submit"
+                    id="save-project"
+                  >
+                    <span data-icon="check"></span>Kaydet
+                  </button>
+                </div>
+              </form>
+              <div class="render-column">
+                <div class="preview-phone" id="preview-phone">
+                  <div class="phone-top">
+                    <span>HYPE ORIGINALS</span
+                    ><span data-icon="sparkles"></span>
+                  </div>
+                  <div id="preview-placeholder">
+                    <div class="preview-orb"></div>
+                    <div class="preview-big-star">✳</div>
+                    <h3 id="preview-title">Gelecek şimdi başlıyor.</h3>
+                    <span class="preview-caption"
+                      >Hikâyen burada hayat bulacak.</span
+                    >
+                  </div>
+                  <video
+                    id="preview-video"
+                    controls
+                    playsinline
+                    preload="metadata"
+                    hidden
+                  ></video>
+                  <div class="phone-bottom">
+                    <span>9:16 · DİKEY VİDEO</span
+                    ><span data-icon="film"></span>
+                  </div>
+                </div>
+                <section class="render-settings">
+                  <div class="section-heading">
+                    <h2>Son dokunuşlar</h2>
+                    <span data-icon="sliders"></span>
+                  </div>
+                  <span class="field-label" id="render-style-label"
+                    >Video teması</span
+                  >
+                  <div
+                    class="theme-picker"
+                    role="group"
+                    aria-labelledby="render-style-label"
+                  >
+                    <label
+                      ><input
+                        type="radio"
+                        name="render-style"
+                        value="aurora"
+                        checked
+                      /><span class="theme-swatch theme-aurora"></span
+                      >Aurora</label
+                    ><label
+                      ><input
+                        type="radio"
+                        name="render-style"
+                        value="sunset"
+                      /><span class="theme-swatch theme-sunset"></span>Gün
+                      batımı</label
+                    >
+                  </div>
+                  <label class="field-label" for="tts-provider"
+                    >Seslendirme</label
+                  ><select class="text-input" id="tts-provider">
+                    <option value="local">Yerel ses · ücretsiz</option>
+                    <option value="elevenlabs">ElevenLabs · API gerekli</option>
+                    <option value="none">Sessiz video + altyazı</option>
+                  </select>
+                  <p class="field-help">
+                    Türkçe ses ve senkron altyazı. Yerel ses üretimi cihazında
+                    çalışır.
+                  </p>
+                  <div id="render-progress" class="render-progress" hidden>
+                    <div>
+                      <span id="render-progress-text">Video hazırlanıyor…</span
+                      ><strong id="render-progress-number"></strong>
+                    </div>
+                    <div class="progress-track">
+                      <i id="render-progress-bar"></i>
+                    </div>
+                  </div>
+                  <button
+                    class="button button-lime full-width"
+                    type="button"
+                    id="render-project"
+                  >
+                    <span data-icon="magic"></span>Videoyu oluştur
+                  </button>
+                  <div id="video-actions" class="video-actions" hidden>
+                    <a
+                      id="download-video"
+                      class="button button-outline full-width"
+                      download
+                      ><span data-icon="download"></span>Videoyu indir</a
+                    ><a id="download-subtitles" class="text-button" download
+                      >Altyazı dosyasını indir<span
+                        data-icon="download"
+                      ></span></a
+                    ><button
+                      class="button button-light full-width"
+                      id="upload-project"
+                    >
+                      <span data-icon="youtube"></span>YouTube'a yükle
+                    </button>
+                  </div>
+                  <p class="render-note">
+                    Kendine ait görsel temalarla üretilir.<br />Kaynak haberdeki
+                    görseller otomatik alınmaz.
+                  </p>
+                </section>
+              </div>
+            </div>
+          </section>
+          <section class="view" id="view-videos" hidden>
+            <div class="page-heading">
+              <div>
+                <p class="eyebrow"><span></span> FİKİRLERİNİN KOLEKSİYONU</p>
+                <h1>Senin <em>hikâyelerin.</em></h1>
+                <p>Taslakların, hazır videoların ve sıradaki büyük fikrin.</p>
+              </div>
+              <button class="button button-light" data-action="new-project">
+                <span data-icon="plus"></span>Yeni video
+              </button>
+            </div>
+            <div id="projects-grid" class="projects-grid"></div>
+          </section>
+          <section class="view" id="view-settings" hidden>
+            <div class="page-heading">
+              <div>
+                <p class="eyebrow"><span></span> STÜDYON, SENİN KURALLARIN</p>
+                <h1>İhtiyacın kadar <em>bağlan.</em></h1>
+                <p>
+                  Ücretsiz araçlarla başla. İstersen kendi servislerini ekle.
+                </p>
+              </div>
+              <span class="free-badge"
+                ><span data-icon="leaf"></span>Ücretsiz varsayılanlar</span
+              >
+            </div>
+            <div class="settings-grid">
+              <section class="settings-card">
+                <span class="settings-card-icon settings-lime"
+                  ><span data-icon="audio"></span></span
+                ><span class="settings-tag">ÖNERİLEN</span>
+                <h2>Yerel üretim</h2>
+                <p>
+                  Şablon tabanlı Türkçe senaryo, yerel seslendirme, FFmpeg ile
+                  video ve altyazı. API anahtarı veya abonelik gerekmez.
+                </p>
+                <div class="status-list" id="local-status-list"></div>
+                <div class="settings-footnote">
+                  Haber RSS kaynaklarına internet bağlantısı gerekir.
+                </div>
+              </section>
+              <section class="settings-card">
+                <span class="settings-card-icon settings-purple"
+                  ><span data-icon="sparkles"></span></span
+                ><span class="settings-tag neutral">İSTEĞE BAĞLI</span>
+                <h2>Yerel yapay zekâ</h2>
+                <p>
+                  Ollama ile bilgisayarında çalışan bir modeli kullan. Senaryonu
+                  geliştir; kullanım başına API ücreti ödeme.
+                </p>
+                <div class="config-name">
+                  OLLAMA_BASE_URL <span>·</span> OLLAMA_MODEL
+                </div>
+                <p class="field-help">
+                  Ollama ve seçtiğin modelin Mac'inde ayrıca kurulu olması
+                  gerekir. Modelin donanım gereksinimlerini kontrol et.
+                </p>
+              </section>
+              <section class="settings-card">
+                <span class="settings-card-icon settings-orange"
+                  ><span data-icon="wave"></span></span
+                ><span class="settings-tag neutral">İSTEĞE BAĞLI</span>
+                <h2>ElevenLabs</h2>
+                <p>
+                  Kendi API anahtarını ekleyerek alternatif seslendirme
+                  kullanabilirsin. Ücretsiz kota sınırlıdır; ücretli kullanım
+                  doğabilir.
+                </p>
+                <div class="config-name">
+                  ELEVENLABS_API_KEY<br />ELEVENLABS_VOICE_ID
+                </div>
+                <p class="field-help">
+                  Varsayılan olarak kapalıdır. Video oluştururken açıkça seçmen
+                  gerekir.
+                </p>
+              </section>
+              <section class="settings-card">
+                <span class="settings-card-icon settings-blue"
+                  ><span data-icon="link"></span></span
+                ><span class="settings-tag neutral">İSTEĞE BAĞLI</span>
+                <h2>OpenAI ve Claude</h2>
+                <p>
+                  API ile senaryo oluşturma isteğe bağlıdır. ChatGPT Plus/Pro ve
+                  Claude Pro abonelikleri API kullanımını kapsamaz.
+                </p>
+                <div class="config-name">
+                  OPENAI_API_KEY <span>·</span> ANTHROPIC_API_KEY
+                </div>
+                <p class="field-help">
+                  Hesap oturumları burada kullanılmaz. API kullanımı ayrıca
+                  ücretlendirilebilir; ücretsiz şablon modu her zaman
+                  kullanılabilir.
+                </p>
+              </section>
+              <section class="settings-card youtube-settings">
+                <span class="settings-card-icon settings-red"
+                  ><span data-icon="youtube"></span
+                ></span>
+                <div>
+                  <h2>YouTube bağlantısı</h2>
+                  <p>
+                    Hesabını yetkilendir, videonu önizle ve onayınla yükle. İlk
+                    yükleme varsayılan olarak gizlidir.
+                  </p>
+                  <div class="config-name">
+                    YOUTUBE_CLIENT_ID <span>·</span> YOUTUBE_CLIENT_SECRET
+                  </div>
+                </div>
+                <button class="button button-light" id="connect-youtube">
+                  <span data-icon="link"></span>Hesabını bağla
+                </button>
+              </section>
+            </div>
+            <div class="notice">
+              <span data-icon="lock"></span>
+              <p>
+                API anahtarlarını tarayıcıya yazma. Gerekli değişkenleri
+                Mac'indeki <code>.env</code> dosyasında yapılandır; anahtarlar
+                sunucu tarafında kalır.
+              </p>
+            </div>
+          </section>
+        </div>
+        <footer class="app-footer">
+          <span><i></i> Hype Studio <b>·</b> Kendi hikâyeni üret.</span
+          ><span>YEREL İÇERİK YÖNETİMİ <span class="footer-star">✦</span></span>
+        </footer>
+      </main>
+    </div>
+    <dialog id="new-project-dialog">
+      <form id="new-project-form">
+        <div class="dialog-header">
+          <span class="eyebrow">HER ŞEY BİR FİKİRLE BAŞLAR</span
+          ><button
+            type="button"
+            class="icon-button"
+            data-close-dialog
+            aria-label="Pencereyi kapat"
+          >
+            <span data-icon="x"></span>
+          </button>
+        </div>
+        <h2>Ne anlatmak istersin?</h2>
+        <p>
+          Bir haber başlığı veya kendi fikrinle yeni bir video taslağı oluştur.
+        </p>
+        <label class="field-label" for="new-title">Konu veya başlık</label
+        ><input
+          id="new-title"
+          class="text-input"
+          placeholder="Örneğin: Küçük modellerin büyük geleceği"
+          required
+          maxlength="100"
+        /><label class="field-label" for="new-summary">Hikâyenin özü</label
+        ><textarea
+          id="new-summary"
+          class="text-input"
+          rows="5"
+          placeholder="Videoda anlatmak istediğin bilgileri kendi cümlelerinle yaz…"
+          required
+        ></textarea
+        ><label class="field-label" for="new-url"
+          >Kaynak bağlantısı <span>(isteğe bağlı)</span></label
+        ><input
+          id="new-url"
+          class="text-input"
+          type="url"
+          placeholder="https://…"
+        /><label class="field-label" for="new-mode">Senaryo oluşturma</label
+        ><select id="new-mode" class="text-input">
+          <option value="template">Ücretsiz şablon · API gerekmez</option>
+          <option value="ollama">Ollama · yerel model</option>
+          <option value="openai">OpenAI API · ücretli olabilir</option>
+          <option value="anthropic">Claude API · ücretli olabilir</option>
+        </select>
+        <div id="new-project-error" class="inline-warning" hidden></div>
+        <button
+          type="submit"
+          class="button button-lime full-width"
+          id="create-project"
+        >
+          <span data-icon="sparkles"></span>Taslağımı oluştur
+        </button>
+      </form>
+    </dialog>
+    <dialog id="upload-dialog">
+      <form id="upload-form">
+        <div class="dialog-header">
+          <span class="eyebrow">SON KONTROL SENDE</span
+          ><button
+            type="button"
+            class="icon-button"
+            data-close-dialog
+            aria-label="Pencereyi kapat"
+          >
+            <span data-icon="x"></span>
+          </button>
+        </div>
+        <h2>Hikâyen yola çıksın mı?</h2>
+        <p>
+          Videonu, altyazılarını ve kaynak bilgisini kontrol et. Onayınla bağlı
+          YouTube hesabına yüklenecek.
+        </p>
+        <div class="upload-summary" id="upload-summary"></div>
+        <label class="field-label" for="upload-privacy">Görünürlük</label
+        ><select id="upload-privacy" class="text-input">
+          <option value="private">Gizli · yalnızca sen görebilirsin</option>
+          <option value="unlisted">
+            Liste dışı · bağlantıya sahip olanlar
+          </option>
+          <option value="public">Herkese açık</option></select
+        ><label class="checkbox-label"
+          ><input type="checkbox" id="upload-confirm" required /><span
+            >Videoyu inceledim. İçeriğin, kaynakların ve kullanım haklarının
+            uygun olduğunu kontrol ettim; YouTube'a yüklenmesini
+            onaylıyorum.</span
+          ></label
+        >
+        <div id="upload-error" class="inline-warning" hidden></div>
+        <button
+          class="button button-light full-width"
+          type="submit"
+          id="confirm-upload"
+        >
+          <span data-icon="youtube"></span>Onayla ve yükle
+        </button>
+      </form>
+    </dialog>
+    <div id="toast" class="toast" role="status" hidden></div>
+  </body>
+</html>

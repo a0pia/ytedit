@@ -1,0 +1,20 @@
+{
+  "name": "hype-studio",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Ücretsiz araçlarla teknoloji haberlerinden kısa videolar üreten Mac stüdyosu",
+  "main": "desktop/main.cjs",
+  "scripts": {
+    "setup": "bash scripts/setup.sh",
+    "start": "electron .",
+    "dev": "bash scripts/start.sh",
+    "test": ".venv/bin/python -m pytest",
+    "check:desktop": "node --check desktop/main.cjs"
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "devDependencies": {
+    "electron": "44.7.2"
+  }
+}

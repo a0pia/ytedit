@@ -23,7 +23,7 @@ import requests
 from werkzeug.exceptions import HTTPException
 from werkzeug.utils import secure_filename
 
-from . import audio, media, news, writing, youtube, translation
+from . import audio, media, news, presenter, writing, youtube, translation
 
 ROOT = Path(__file__).resolve().parent.parent
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
@@ -657,9 +657,14 @@ def create_app(data_dir=None, testing=False):
             raise ValueError('Geçersiz video ayarları')
         if 'speech_rate' in opts and (isinstance(opts['speech_rate'], bool) or not isinstance(opts['speech_rate'], int) or not 100 <= opts['speech_rate'] <= 240):
             raise ValueError('Konuşma hızı 100 ile 240 arasında olmalı.')
-        if opts.get('video_design', 'kinetic') not in {'kinetic', 'classic'}:
-            raise ValueError('Video tasarımı animasyonlu sahneler veya klasik olmalı.')
-        opts = {key: opts[key] for key in ('style', 'tts_provider', 'speech', 'speech_rate', 'video_design') if key in opts}
+        if opts.get('video_design', 'kinetic') not in {'kinetic', 'host', 'classic'}:
+            raise ValueError('Video tasarımı anlatıcılı, animasyonlu sahneler veya klasik olmalı.')
+        if opts.get('host_look', 'nova') not in presenter.LOOKS:
+            raise ValueError('Geçersiz anlatıcı karakteri.')
+        if not isinstance(opts.get('host_name', ''), str) or len(opts.get('host_name', '')) > presenter.MAX_NAME:
+            raise ValueError(f'Anlatıcı adı en fazla {presenter.MAX_NAME} karakter olabilir.')
+        opts = {key: opts[key] for key in ('style', 'tts_provider', 'speech', 'speech_rate', 'video_design',
+                                           'host_look', 'host_name') if key in opts}
         with jobs_lock:
             result = project(ident)
             if is_busy(ident):

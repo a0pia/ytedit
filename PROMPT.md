@@ -28,3 +28,11 @@ birde elevelabs api si paralıymış videodaki metni bize verse video sonra ben 
 - ElevenLabs web sitesi veya başka bir araçta kullanıcı tarafından hazırlanan MP3/WAV kaydı projeye yüklenebilsin; bu yol için ücretli ses API'si çağrılmasın.
 - Video süresi ve animasyonlu sahneler yüklenen kaydın süresine göre hazırlansın.
 - Altyazı süreleri konuşma/sessizlik aralıklarından tahmin edilsin, kullanıcı başlangıç/bitiş saniyelerini düzeltebilsin. Kaydın aynı senaryo metnini içermesi gereksinimi açıkça belirtilsin.
+
+## Anlatıcı karakter için eklenen istek
+
+projedeki sunum kısmını beğenemiyorum böyle bana özgü bir tema oluşturalım bir karakter anlatıyor gibi olsun bir kurgusal karakter olabilir influencer gibi düşünebilirsin sunumları daha dikkat çekici yapmak lazım örnek şöyle bir şey olabilir anlatıcı olur ara sahnelerde gelir gibi sistemi internette biraz araştır
+
+- Göz, kaş ve baş kontrolleri olan bir 2D kukla (Character Animator / VTuber benzeri) anlatıcı.
+- Giriş, ara sahneler ve kapanışta büyük plan; diğer sahnelerde köşe penceresinden yorum.
+- Ağız hareketi seslendirmeye göre; karakter adı ve görünümü seçilebilir.

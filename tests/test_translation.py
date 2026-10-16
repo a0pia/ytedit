@@ -431,3 +431,14 @@ def test_published_project_requires_duplicate_before_translation(studio, monkeyp
     copy = client.post(f"/api/projects/{project['id']}/duplicate", json={}).get_json()
     assert 'youtube_id' not in copy
     assert copy['status'] == 'draft'
+
+
+@pytest.mark.parametrize("payload", [{"video_design": "host", "host_look": "unknown"},
+                                     {"video_design": "host", "host_name": "x" * 19},
+                                     {"video_design": "host", "host_name": 7}])
+def test_invalid_presenter_options_are_rejected_before_rendering(studio, monkeypatch, payload):
+    _, client, _ = studio
+    project = create(client)
+    monkeypatch.setattr(server.media, "render", lambda *args: pytest.fail("Invalid presenter rendered"))
+    response = client.post(f"/api/projects/{project['id']}/render", json=payload)
+    assert response.status_code == 400

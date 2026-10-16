@@ -21,6 +21,7 @@ import wave
 from typing import Callable
 
 from .audio import AudioError, inspect_audio, normalize_audio, plan_captions, validate_captions
+from . import presenter
 
 
 class MediaError(RuntimeError):
@@ -325,6 +326,23 @@ def _uploaded_kinetic_plan(duration: float, spans: list[tuple[float, float, str]
     return scenes
 
 
+def _host_plan(scenes: list[dict]) -> list[dict]:
+    """Recast kinetic scenes as a hosted show: intro, PiP commentary and cut-ins."""
+    hosted = []
+    for index, scene in enumerate(scenes):
+        scene = dict(scene)
+        if index == 0:
+            scene.update(host="big", wave=True)
+        else:
+            if index == len(scenes) - 1 and len(scenes) >= 3:
+                scene["layout"] = "host"
+            else:
+                scene["layout"] = ("editorial", "host", "card", "statement")[(index - 1) % 4]
+            scene["host"] = "big" if scene["layout"] == "host" else "pip"
+        hosted.append(scene)
+    return hosted
+
+
 def _ass_rgb(hexadecimal: str) -> str:
     return "&H" + hexadecimal[4:6] + hexadecimal[2:4] + hexadecimal[0:2] + "&"
 
@@ -344,7 +362,7 @@ def _circle(radius: int) -> str:
 
 
 def _kinetic_events(title: str, segments: list[tuple[float, float, str]],
-                    scenes: list[dict], duration: float, style: str) -> list[str]:
+                    scenes: list[dict], duration: float, style: str, host: dict | None = None) -> list[str]:
     """Original vector motion design. Every visible source phrase is verbatim."""
     events: list[str] = []
     colors = [("111B22", "C8FF58"), ("211737", "C2A3FF"),
@@ -381,7 +399,51 @@ def _kinetic_events(title: str, segments: list[tuple[float, float, str]],
         text(start, end, "HYPE / TEKNOLOJİ", 60, 104, 21, accent, extra=r"\fsp3\fad(80,100)")
         text(start, end, f"{index+1:02d} / {len(scenes):02d}", 660, 104, 20, "FFFFFF", 9,
              extra=r"\1a&H55&\fad(80,100)")
-        if layout == "hook":
+        if host and scene.get("host") == "big":
+            # A soft spotlight behind the presenter, then the presenter's lower third.
+            shape(start, end, 2, _circle(250), accent, r"\move(110,520,110,500,0,600)", r"\fad(120,0)", "B4")
+            name = presenter.display_name(host["name"])
+            tag_width = round(sum(map(_glyph_width, name)) * 24 + 40)
+            shape(start, end, 5, _round_rect(tag_width, 44, 22), accent, r"\move(-200,868,40,868,0,320)")
+            text(start, end, name, 60, 878, 24, base, extra=r"\fsp1\move(-180,878,60,878,0,320)", layer=5)
+        elif host:
+            cx, cy, radius = presenter.PIP_CIRCLE
+            shape(start, end, 3, _circle(round(radius)), base, rf"\pos({cx-radius},{cy-radius})", r"\fad(160,0)")
+            ring = presenter.screen_circle(cx, cy, radius) + " " + presenter.screen_circle(cx, cy, radius - 7, reverse=True)
+            event(start, end, 5, rf"\an7\bord0\shad0\1c{_ass_rgb(accent)}\pos(0,0)\fad(200,0)\p1",
+                  ring + r"{\p0}")
+            event(start, end, 3, rf"\an7\bord0\shad0\1c{_ass_rgb(accent)}\1a&HB0&\pos(0,0)\p1",
+                  presenter.screen_circle(cx, cy, radius - 7) + r"{\p0}")
+            name = presenter.display_name(host["name"])
+            tag_width = round(sum(map(_glyph_width, name)) * 17 + 28)
+            shape(start, end, 5, _round_rect(tag_width, 30, 15), accent, rf"\pos({round(cx - tag_width / 2)},{round(cy + radius - 22)})",
+                  r"\fad(200,0)")
+            text(start, end, name, round(cx), round(cy + radius - 7), 17, base, 5, extra=r"\fsp1\fad(200,0)", layer=5)
+        if layout == "hook" and host:
+            text(start, end, f"{presenter.display_name(host['name'])} ANLATIYOR", 62, 200, 21, accent,
+                 extra=r"\fsp2\fad(0,160)")
+            size, fitted = _fit_display(title, sizes=(66, 60, 54, 48, 42, 38), width=600, lines=4, height=260)
+            line_height = round(size * 1.14)
+            for line_number, line in enumerate(fitted.splitlines()):
+                delay = min(.10 * line_number, (end - start) * .15)
+                y = 250 + line_number * line_height
+                event(start + delay, end, 6,
+                      rf"\an7\move(92,{y+30},60,{y},0,380)\fs{size}\1c&HFFFFFF&\bord0\shad0\fscx108\fscy108\t(0,330,\fscx100\fscy100)\fad(0,140)",
+                      _ass_escape(line))
+        elif layout == "host":
+            # Speech-bubble cut-in: the host reacts to a verbatim source phrase.
+            size, fitted = _fit_display(scene["phrase"], sizes=(56, 50, 46, 42, 38, 34), width=540, lines=5, height=230)
+            height = len(fitted.splitlines()) * round(size * 1.2) + 96
+            top = max(160, 470 - height)
+            event(start, end, 6, rf"\an7\bord0\shad0\1c&HF4F6F7&\move(50,{top+40},50,{top},0,300)\fad(80,140)\p1",
+                  _round_rect(620, height, 34) + r"{\p0}")
+            event(start, end, 6, rf"\an7\bord0\shad0\1c&HF4F6F7&\move(0,40,0,0,0,300)\fad(80,140)\p1",
+                  f"m 300 {top+height-2} l 368 {top+height-2} l 318 {top+height+52}" + r"{\p0}")
+            label = "SON SÖZ" if index == len(scenes) - 1 else "ARA SAHNE"
+            text(start, end, label, 92, top + 30, 18, base, extra=r"\fsp3\fad(120,140)")
+            event(start + .08, end, 6, rf"\an7\move(92,{top+96},92,{top+66},0,340)\fs{size}\1c{_ass_rgb(base)}\bord0\shad0\fad(100,140)",
+                  _ass_escape(fitted))
+        elif layout == "hook":
             text(start, end, "BUGÜNÜN KONUSU", 62, 225, 21, accent, extra=r"\fsp2\fad(0,160)")
             size, fitted = _fit_display(title, sizes=(88, 80, 72, 64, 56, 48), width=585, lines=4)
             line_height = round(size * 1.14)
@@ -417,8 +479,14 @@ def _kinetic_events(title: str, segments: list[tuple[float, float, str]],
                   rf"\fscx0\t(0,420,\fscx100)\fad(0,140)")
             size, fitted = _fit_display(scene["phrase"], sizes=(68, 60, 54, 48, 42, 36), width=580, lines=6, height=400)
             event(start, end, 6, rf"\an7\move(62,440,62,378,0,420)\fs{size}\1c{_ass_rgb(accent)}\bord0\shad0\fad(100,140)", _ass_escape(fitted))
-            shape(start, end, 2, "m 0 0 l 70 0 70 70 0 70", accent,
-                  rf"\move(520,790,570,720,0,{milliseconds})", rf"\frz0\t(0,{milliseconds},\frz90)", "77")
+            if not host:
+                shape(start, end, 2, "m 0 0 l 70 0 70 70 0 70", accent,
+                      rf"\move(520,790,570,720,0,{milliseconds})", rf"\frz0\t(0,{milliseconds},\frz90)", "77")
+        if host and index:
+            # A diagonal brand wipe hides each cut, like a channel's stinger transition.
+            wipe = "m 200 0 l 1300 0 l 1100 1280 l 0 1280"
+            event(max(0, start - .2), min(duration, start + .22), 6,
+                  rf"\an7\bord0\shad0\1c{_ass_rgb(accent)}\move(-1400,0,820,0,0,420)\p1", wipe + r"{\p0}")
 
     # The captions remain tied to recorded sentence durations across all cuts.
     shape(0, duration, 7, _round_rect(624, 180, 24), "070B12", r"\pos(48,932)", alpha="30")
@@ -426,6 +494,11 @@ def _kinetic_events(title: str, segments: list[tuple[float, float, str]],
         event(start, end, 9,
               r"\an2\pos(360,1084)\fs44\1c&HFFFFFF&\bord1.5\3c&H120B07&\shad0\fscx97\fscy97\t(0,100,\fscx100\fscy100)\fad(0,35)",
               _ass_escape(caption))
+    if host:
+        events.extend(presenter.puppet_events(
+            look_id=host["look"], accent_for=lambda index: colors[index % len(colors)][1],
+            spans=host["spans"], scenes=scenes, duration=duration, levels=host.get("levels"),
+            seed=title, layer=4))
     accent = colors[0][1]
     shape(0, duration, 8, "m 0 0 l 600 0 600 4 0 4", "FFFFFF", r"\pos(60,1172)", alpha="D8")
     shape(0, duration, 9, "m 0 0 l 600 0 600 4 0 4", accent, r"\pos(60,1172)",
@@ -434,7 +507,8 @@ def _kinetic_events(title: str, segments: list[tuple[float, float, str]],
 
 
 def _write_subtitles(output_dir: Path, title: str, segments: list[tuple[float, float, str]], duration: float,
-                     *, scenes: list[dict] | None = None, style: str = "aurora") -> tuple[Path, Path]:
+                     *, scenes: list[dict] | None = None, style: str = "aurora",
+                     host: dict | None = None) -> tuple[Path, Path]:
     subtitle_path = output_dir / "captions.srt"
     subtitle_path.write_text("\n\n".join(
         f"{i}\n{_timestamp(start)} --> {_timestamp(end)}\n{text}"
@@ -458,7 +532,7 @@ Style: Motion,{font},44,&H00FFFFFF,&H000000FF,&H00120B07,&H00000000,-1,0,0,0,100
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
     if scenes:
-        events = _kinetic_events(title, segments, scenes, duration, style)
+        events = _kinetic_events(title, segments, scenes, duration, style, host)
     else:
         title_size, fitted_title = _title_layout(title)
         events = [f"Dialogue: 0,0:00:00.00,{_timestamp(duration, True)},Label,,0,0,0,,TEKNOLOJİ GÜNDEMİ",
@@ -609,8 +683,14 @@ def _render_work(project: dict, output_dir: Path, options: dict | None = None,
     if style not in ("aurora", "sunset"):
         raise MediaError("Desteklenmeyen video teması. aurora veya sunset seçin.")
     design = options.get("video_design", "kinetic")
-    if design not in ("kinetic", "classic"):
-        raise MediaError("Desteklenmeyen video tasarımı. kinetic veya classic seçin.")
+    if design not in ("kinetic", "host", "classic"):
+        raise MediaError("Desteklenmeyen video tasarımı. kinetic, host veya classic seçin.")
+    look = options.get("host_look", "nova")
+    if look not in presenter.LOOKS:
+        raise MediaError("Desteklenmeyen anlatıcı görünümü. " + ", ".join(presenter.LOOKS) + " seçin.")
+    if not isinstance(options.get("host_name", ""), str):
+        raise MediaError("Anlatıcı adı metin olmalı.")
+    host_name = presenter.clean_name(options.get("host_name"), look)
     try:
         rate = int(options.get("speech_rate", 170))
     except (ValueError, TypeError):
@@ -701,8 +781,13 @@ def _render_work(project: dict, output_dir: Path, options: dict | None = None,
             combined.setframerate(SAMPLE_RATE)
             combined.writeframes(b"\0\0" * math.ceil(cursor * SAMPLE_RATE))
     scenes = ((_uploaded_kinetic_plan(cursor, spans) if provider == "uploaded" else _kinetic_plan(cursor, spans))
-              if design == "kinetic" else None)
-    subtitle_path, _ = _write_subtitles(output_dir, title, segments, cursor, scenes=scenes, style=style)
+              if design != "classic" else None)
+    host = None
+    if design == "host":
+        scenes = _host_plan(scenes)
+        host = {"look": look, "name": host_name, "spans": spans,
+                "levels": presenter.speech_levels(narration_path, cursor) if speech else None}
+    subtitle_path, _ = _write_subtitles(output_dir, title, segments, cursor, scenes=scenes, style=style, host=host)
     if design == "classic":
         _background(output_dir / "background.ppm", style)
         inputs = ["-loop", "1", "-framerate", "24", "-i", "background.ppm", "-i", "narration.wav"]
@@ -737,7 +822,8 @@ def _render_work(project: dict, output_dir: Path, options: dict | None = None,
             "provider": ("Yüklenen ses" if provider == "uploaded" else "ElevenLabs" if provider == "elevenlabs" else engine["provider"]) if speech else "Sessiz video",
             "voice": "Harici kayıt" if provider == "uploaded" else engine["voice"] if speech and provider == "local" else "",
             "subtitle_timing": uploaded_timing if provider == "uploaded" else "sentence_audio" if speech else "estimated",
-            "design": design, "scene_count": len(scenes) if scenes else 1}
+            "design": design, "scene_count": len(scenes) if scenes else 1,
+            **({"host_name": host_name, "host_look": look} if design == "host" else {})}
 
 
 def render(project: dict, output_dir: Path, options: dict | None = None,

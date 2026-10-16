@@ -1266,7 +1266,8 @@
     const designSummary = $("#video-design-summary");
     const design = project.design || project.render_options?.video_design;
     designSummary.hidden = !hasVideo || !design;
-    designSummary.textContent = (design === "classic" ? "Klasik tasarım" : "Animasyonlu sahneler") +
+    designSummary.textContent = (design === "classic" ? "Klasik tasarım" : design === "host"
+      ? "Anlatıcılı" + (project.render_options?.host_name ? " · " + project.render_options.host_name : "") : "Animasyonlu sahneler") +
       (Number.isFinite(Number(project.scene_count)) && Number(project.scene_count) > 0
         ? " · " + Number(project.scene_count) + " sahne" : "") +
       (Number(project.duration) > 0 ? " · " + Number(project.duration).toLocaleString("tr-TR", { maximumFractionDigits: 1 }) + " sn" : "") +
@@ -1350,7 +1351,10 @@
       }
     });
     $("#editor-original").hidden = !original.childElementCount;
-    $("#video-design").value = project.render_options?.video_design || project.design || "kinetic";
+    $("#video-design").value = project.render_options?.video_design || project.design || "host";
+    $("#host-look").value = project.render_options?.host_look || "nova";
+    $("#host-name").value = project.render_options?.host_name || "";
+    $("#host-fields").hidden = $("#video-design").value !== "host";
     const savedOptions = project.render_options;
     const savedProvider = savedOptions?.tts_provider;
     let voiceProvider = savedOptions ? "local" : project.audio ? "uploaded" : "local";
@@ -1504,6 +1508,8 @@
           voice: "tr",
           style: $('input[name="render-style"]:checked').value,
           video_design: $("#video-design").value,
+          ...($("#video-design").value === "host"
+            ? { host_look: $("#host-look").value, host_name: $("#host-name").value.trim() } : {}),
           speech: provider !== "none",
           tts_provider: ["elevenlabs", "uploaded"].includes(provider) ? provider : "local",
         };
@@ -1763,6 +1769,9 @@
     });
     $("#upload-voice").addEventListener("click", uploadVoice);
     $("#remove-audio").addEventListener("click", removeAudio);
+    $("#video-design").addEventListener("change", () => {
+      $("#host-fields").hidden = $("#video-design").value !== "host";
+    });
     $("#tts-provider").addEventListener("change", () => {
       if (state.selected) updateAudio(state.selected);
     });

@@ -104,3 +104,35 @@ class HostRenderTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CapsuleThemeTests(unittest.TestCase):
+    def test_capsule_theme_draws_the_dashboard_chassis_and_escapes_text(self):
+        from app import capsule
+        scenes = _host_plan(_kinetic_plan(15, SPANS))
+        host = {"look": "volt", "name": r"V{\b1}olt", "spans": SPANS, "levels": None}
+        content = "\n".join(capsule.events(r"Başlık {\fnX}", [(0, 15, "Metin")], scenes, 15, host))
+        self.assertIn("Teknoloji gündemi", content)
+        self.assertIn(r"\1c&H3AF2D9&", content)  # Lime accent in ASS BGR order.
+        self.assertNotIn(r"{\fnX}", content)
+        self.assertNotIn(r"{\b1}", content)
+        self.assertIn("Son söz", content)
+
+    def test_volt_mascot_has_led_eyes_antenna_and_blinks(self):
+        look = presenter.LOOKS["volt"]
+        pose = {"gaze": (0, 0), "open": 1.0, "mouth": ("X", 0, 0), "brow": (.2, 4), "level": .8}
+        names = [name for name, _color, _path in presenter.head_parts(look, "D9F23A", pose)]
+        self.assertTrue({"leds", "bulb", "glow", "visor", "cups", "mic"} <= set(names))
+        closed = presenter.head_parts(look, "D9F23A", {**pose, "open": 0.0})
+        self.assertNotIn("led-shine", [name for name, _c, _p in closed])
+
+    @unittest.skipUnless(shutil.which("ffmpeg"), "FFmpeg is required")
+    def test_real_capsule_render(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            result = render({"title": "Kapsül", "script": "Merhaba teknoloji. Bu bir deneme mi? Evet."},
+                            Path(temporary), {"speech": False, "video_design": "host", "style": "capsule"})
+            self.assertEqual(result["host_look"], "volt")
+            frame = subprocess.run(["ffmpeg", "-nostdin", "-loglevel", "error", "-ss", "0.5", "-i", result["video_path"],
+                                    "-frames:v", "1", "-vf", "crop=10:10:660:400", "-f", "rawvideo", "-pix_fmt", "rgb24",
+                                    "pipe:1"], capture_output=True, check=True).stdout
+            self.assertGreater(sum(frame) / len(frame), 120)  # Light panel, not a dark scene.

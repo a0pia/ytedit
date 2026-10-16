@@ -36,3 +36,11 @@ projedeki sunum kısmını beğenemiyorum böyle bana özgü bir tema oluştural
 - Göz, kaş ve baş kontrolleri olan bir 2D kukla (Character Animator / VTuber benzeri) anlatıcı.
 - Giriş, ara sahneler ve kapanışta büyük plan; diğer sahnelerde köşe penceresinden yorum.
 - Ağız hareketi seslendirmeye göre; karakter adı ve görünümü seçilebilir.
+
+## Kapsül teması ve ikonik karakter için eklenen istek
+
+daha ikonik bi karakter yapabilir miyiz birde sunumun temasını beğenmiyorum şu tarz tema md si oluştur sunum temasını ona göre ayarla
+
+- Referans: açık gri panel, koyu çerçeve, hap düğmeler, neon limon vurgu, zaman çizelgesi ve kartlı bir dashboard.
+- Tema kuralları `docs/TEMA.md` dosyasında; video sahneleri bu temaya göre (`style: "capsule"`).
+- Siluetiyle tanınan maskot anlatıcı: Volt.

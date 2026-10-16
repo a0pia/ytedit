@@ -21,7 +21,7 @@ import wave
 from typing import Callable
 
 from .audio import AudioError, inspect_audio, normalize_audio, plan_captions, validate_captions
-from . import presenter
+from . import capsule, presenter
 
 
 class MediaError(RuntimeError):
@@ -210,24 +210,37 @@ def _glyph_width(character: str) -> float:
 
 
 def _wrap_lines(text: str, characters: int, em_width: float) -> list[str]:
-    """Wrap at words while breaking long tokens before they leave the safe area."""
+    """Greedy word wrap bounded by both glyph width and character count.
+
+    Words that alone exceed a line are broken before they leave the safe area.
+    One pass keeps lines balanced instead of leaving short orphan fragments.
+    """
+    def width(value: str) -> float:
+        return sum(map(_glyph_width, value))
+
     result: list[str] = []
-    for initial in textwrap.wrap(text, width=characters, break_long_words=True, break_on_hyphens=False):
-        remaining = initial
-        while remaining:
-            width = 0.0
-            boundary = len(remaining)
-            for index, character in enumerate(remaining):
-                width += _glyph_width(character)
-                if width > em_width:
-                    boundary = max(1, index)
+    line = ""
+    for word in text.split():
+        candidate = f"{line} {word}" if line else word
+        if width(candidate) <= em_width and len(candidate) <= characters:
+            line = candidate
+            continue
+        if line:
+            result.append(line)
+        line = ""
+        while width(word) > em_width or len(word) > characters:
+            used, boundary = 0.0, 0
+            for index, character in enumerate(word):
+                used += _glyph_width(character)
+                if used > em_width or index >= characters:
                     break
-            if boundary < len(remaining):
-                last_space = remaining.rfind(" ", 0, boundary + 1)
-                if last_space > 0:
-                    boundary = last_space
-            result.append(remaining[:boundary].strip())
-            remaining = remaining[boundary:].lstrip()
+                boundary = index + 1
+            boundary = max(1, boundary)
+            result.append(word[:boundary])
+            word = word[boundary:]
+        line = word
+    if line:
+        result.append(line)
     return result
 
 
@@ -531,7 +544,9 @@ Style: Motion,{font},44,&H00FFFFFF,&H000000FF,&H00120B07,&H00000000,-1,0,0,0,100
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
-    if scenes:
+    if scenes and style == "capsule":
+        events = capsule.events(title, segments, scenes, duration, host)
+    elif scenes:
         events = _kinetic_events(title, segments, scenes, duration, style, host)
     else:
         title_size, fitted_title = _title_layout(title)
@@ -547,7 +562,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 def _background(path: Path, style: str) -> None:
     """An original procedural background; no downloaded footage or licensed assets."""
     width, height = 360, 640
-    palette = ((27, 20, 55), (9, 47, 50), (130, 244, 152)) if style == "aurora" else ((67, 25, 48), (20, 22, 52), (251, 150, 113))
+    palette = {"aurora": ((27, 20, 55), (9, 47, 50), (130, 244, 152)),
+               "sunset": ((67, 25, 48), (20, 22, 52), (251, 150, 113)),
+               "capsule": ((60, 61, 63), (43, 44, 46), (217, 242, 58))}[style]
     top, bottom, glow = palette
     pixels = bytearray()
     for y in range(height):
@@ -680,12 +697,12 @@ def _render_work(project: dict, output_dir: Path, options: dict | None = None,
     if provider == "uploaded" and not speech:
         raise MediaError("Yüklenen sesle video üretirken seslendirme açık olmalı.")
     style = options.get("style", "aurora")
-    if style not in ("aurora", "sunset"):
-        raise MediaError("Desteklenmeyen video teması. aurora veya sunset seçin.")
+    if style not in ("aurora", "sunset", "capsule"):
+        raise MediaError("Desteklenmeyen video teması. capsule, aurora veya sunset seçin.")
     design = options.get("video_design", "kinetic")
     if design not in ("kinetic", "host", "classic"):
         raise MediaError("Desteklenmeyen video tasarımı. kinetic, host veya classic seçin.")
-    look = options.get("host_look", "nova")
+    look = options.get("host_look", "volt")
     if look not in presenter.LOOKS:
         raise MediaError("Desteklenmeyen anlatıcı görünümü. " + ", ".join(presenter.LOOKS) + " seçin.")
     if not isinstance(options.get("host_name", ""), str):

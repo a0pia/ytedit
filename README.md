@@ -162,6 +162,16 @@ Bütün grafikler uygulama içinde üretilir. Bu özellik ücretli stok video, m
 
 `tests/translation_ui_smoke.py`, ayrı bir yerel ve belirli yanıt veren model taklidiyle gerçek HTTP çeviri bağlantısını ve arayüzü doğrular. Bu, gerçek bir dil modelinin çeviri kalitesi testi değildir. Bulut makinesinde Ollama model indirme adresleri proxy403 ile engellendiği için gerçek model çalıştırılmadı; gerçek animasyonlu video ve Türkçe yerel seslendirme ise FFmpeg ile üretildi.
 
+## Kapsül teması ve Volt
+
+Varsayılan video teması **Kapsül**'dür: kömür rengi çerçeve içinde açık sıcak gri bir panel, hap biçimli çipler, kırmızıdan yeşile geçen bir zaman çizelgesi, limon düğümler, yuvarlak kartlar ve koyu altyazı kapsülü. Alt kısımdaki beyaz zaman çubuğu her sahneyi bir nokta olarak gösterir ve ilerleme göstergesi olarak çalışır. Renk, tipografi, yerleşim, bileşen, hareket ve karakter kuralları [docs/TEMA.md](docs/TEMA.md) dosyasında tanımlıdır. Aurora ve Gün batımı temaları seçenek olarak kalır.
+
+Temanın imza karakteri **Volt**'tur: kapsül biçimli baş, limon LED gözlü koyu vizör, konuşurken sesin şiddetiyle parlayan anten, limon kulaklık ve mikrofon. Siluet tek başına tanınacak şekilde tasarlandı. Diğer karakterler (Nova, Kaan, Ece) de seçilebilir.
+
+![Kapsül teması: giriş, odak kartı, ara sahne, gündem etiketi, yakın plan ve PiP](docs/capsule-scenes.png)
+
+API'de `style: "capsule"` kullanılır. Geriye uyumluluk için API'nin varsayılan teması `aurora` olarak kalır; arayüz yeni projelerde Kapsül + Anlatıcılı + Volt seçili gelir.
+
 ## Anlatıcılı sunum (karakter)
 
 **Sahne tasarımı → Anlatıcılı** seçildiğinde videoyu kurgusal bir sunucu karakter anlatır; teknoloji kanallarındaki influencer/VTuber sunucular gibi:
@@ -173,11 +183,11 @@ Bütün grafikler uygulama içinde üretilir. Bu özellik ücretli stok video, m
 
 Karakter, Adobe Character Animator, PNGTuber ve VTuber modellerindeki gibi parçalara ayrılmış bir **rig**'dir: gövde, baş, gözler, göz bebekleri, kaşlar ve ağız ayrı ayrı hareket eder. Ağız, seslendirmenin ses yüksekliğine göre açılır; o anda okunan altyazı harfine göre A/E/I/O/U, M-B-P ve F-V ağız şekilleri (visemler) seçilir. Gözler kendiliğinden kırpışır ve kısa bakış değişimleri yapar; kaşlar konuşma enerjisinde, sahne geçişlerinde ve soru/ünlem cümlelerinde kalkar; baş hafifçe sallanır ve vurgu anlarında eğilir. Sessiz videoda ağız hareketi altyazı metninden tahmin edilir. Bu senkron ses yüksekliği ve metin konumundan **tahmin edilir**; konuşma tanıma veya fonem hizalaması yapılmaz.
 
-Hazır üç karakter vardır: **Nova** (mor perçemli, gözlüklü), **Kaan** (sakallı, gözlüklü) ve **Ece** (küt saçlı). Anlatıcı adını panelden değiştirebilirsiniz (en fazla 18 karakter). Karakterler kod içinde vektör çizimlerle üretilir (`app/presenter.py`); indirilen görsel, font veya lisanslı karakter kullanılmaz. Karakterin rengi ve kıyafeti, `LOOKS` sözlüğüne yeni bir görünüm eklenerek özelleştirilebilir.
+Hazır dört karakter vardır: **Volt** (kapsül kafalı maskot, varsayılan), **Nova** (mor perçemli, gözlüklü), **Kaan** (sakallı, gözlüklü) ve **Ece** (küt saçlı). Anlatıcı adını panelden değiştirebilirsiniz (en fazla 18 karakter). Karakterler kod içinde vektör çizimlerle üretilir (`app/presenter.py`); indirilen görsel, font veya lisanslı karakter kullanılmaz. Karakterin rengi ve kıyafeti, `LOOKS` sözlüğüne yeni bir görünüm eklenerek özelleştirilebilir.
 
 ![Anlatıcılı videodan sahneler: üç karakter, PiP ve konuşma balonu](docs/presenter-scenes.png)
 
-API'de `video_design: "host"`, `host_look: "nova" | "kaan" | "ece"` ve isteğe bağlı `host_name` kullanılır. API'nin varsayılan tasarımı geriye uyumluluk için `kinetic` kalır; arayüz yeni projelerde Anlatıcılı tasarımı seçili getirir.
+API'de `video_design: "host"`, `host_look: "volt" | "nova" | "kaan" | "ece"` ve isteğe bağlı `host_name` kullanılır. API'nin varsayılan tasarımı geriye uyumluluk için `kinetic` kalır; arayüz yeni projelerde Anlatıcılı tasarımı seçili getirir.
 
 ## 0.4: Hazır ses dosyasıyla kurgu
 

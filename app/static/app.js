@@ -1352,7 +1352,10 @@
     });
     $("#editor-original").hidden = !original.childElementCount;
     $("#video-design").value = project.render_options?.video_design || project.design || "host";
-    $("#host-look").value = project.render_options?.host_look || "nova";
+    $("#host-look").value = project.render_options?.host_look || "volt";
+    const savedStyle = project.render_options?.style || "capsule";
+    const styleInput = $(`input[name="render-style"][value="${savedStyle}"]`);
+    if (styleInput) styleInput.checked = true;
     $("#host-name").value = project.render_options?.host_name || "";
     $("#host-fields").hidden = $("#video-design").value !== "host";
     const savedOptions = project.render_options;

@@ -653,13 +653,13 @@ def create_app(data_dir=None, testing=False):
     @app.post('/api/projects/<ident>/render')
     def render_video(ident):
         opts = body()
-        if opts.get('style', 'aurora') not in {'aurora', 'sunset'} or opts.get('tts_provider', 'local') not in {'local', 'elevenlabs', 'uploaded'} or not isinstance(opts.get('speech', True), bool):
+        if opts.get('style', 'aurora') not in {'aurora', 'sunset', 'capsule'} or opts.get('tts_provider', 'local') not in {'local', 'elevenlabs', 'uploaded'} or not isinstance(opts.get('speech', True), bool):
             raise ValueError('Geçersiz video ayarları')
         if 'speech_rate' in opts and (isinstance(opts['speech_rate'], bool) or not isinstance(opts['speech_rate'], int) or not 100 <= opts['speech_rate'] <= 240):
             raise ValueError('Konuşma hızı 100 ile 240 arasında olmalı.')
         if opts.get('video_design', 'kinetic') not in {'kinetic', 'host', 'classic'}:
             raise ValueError('Video tasarımı anlatıcılı, animasyonlu sahneler veya klasik olmalı.')
-        if opts.get('host_look', 'nova') not in presenter.LOOKS:
+        if opts.get('host_look', 'volt') not in presenter.LOOKS:
             raise ValueError('Geçersiz anlatıcı karakteri.')
         if not isinstance(opts.get('host_name', ''), str) or len(opts.get('host_name', '')) > presenter.MAX_NAME:
             raise ValueError(f'Anlatıcı adı en fazla {presenter.MAX_NAME} karakter olabilir.')

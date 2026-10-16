@@ -1974,6 +1974,9 @@ textarea.text-input {
 .theme-sunset {
   background: linear-gradient(140deg, #f1c196, #8a4c6c);
 }
+.theme-capsule {
+  background: linear-gradient(140deg, #e8e7e2 55%, #d9f23a 55%, #d9f23a 72%, #3c3d3f 72%);
+}
 .render-settings select {
   font-size: 11px;
   padding: 9px 8px;

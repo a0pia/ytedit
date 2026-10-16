@@ -27,6 +27,10 @@ PIVOT = (200.0, 460.0)  # Neck pivot inside the 400x560 local character frame.
 MAX_NAME = 18
 
 LOOKS = {
+    # Volt is the Capsule theme's mascot: capsule head, antenna and headphones
+    # form a silhouette that stays recognizable even as a flat shadow.
+    "volt": {"label": "Volt", "kind": "mascot", "skin": "F2F1EC", "shade": "C9C7C0", "hair": "2B2C2E",
+             "hairstyle": "none", "glasses": False, "beard": False, "hoodie": "34363A"},
     "nova": {"label": "Nova", "skin": "D9956A", "shade": "B9774F", "hair": "2A1F3D",
              "hairstyle": "quiff", "glasses": True, "beard": False, "hoodie": "3A4F7A"},
     "kaan": {"label": "Kaan", "skin": "9A6440", "shade": "7C4C2E", "hair": "201C1B",
@@ -154,7 +158,44 @@ def body_parts(look: dict, accent: str, wave_angle: float | None) -> list[tuple[
     return parts
 
 
+def mascot_head_parts(look: dict, accent: str, pose: dict) -> list[tuple[str, str, str]]:
+    ink, face = look["hair"], look["skin"]
+    level = pose.get("level", 0.0)
+    gx, gy = pose["gaze"]
+    parts = [
+        ("band", ink, "m 60 252 b 60 158 124 96 200 96 b 276 96 340 158 340 252 l 324 252 "
+                      "b 324 170 270 112 200 112 b 130 112 76 170 76 252 l 60 252"),
+        ("stem", ink, _rrect(195, 60, 10, 64, 5)),
+        ("glow", accent + "&\\1a&H" + f"{round(255 - 150 * min(1.0, level)):02X}", _ellipse(200, 54, 28, 28)),
+        ("bulb", accent, _ellipse(200, 54, 15, 15)),
+        ("head", face, _rrect(86, 118, 228, 278, 104)),
+        ("jaw", look["shade"] + "&\\1a&HA0", "m 92 300 b 96 360 140 396 200 396 b 260 396 304 360 308 300 "
+                                              "b 290 352 250 378 200 378 b 150 378 110 352 92 300"),
+        ("cups", accent, _rrect(54, 212, 44, 96, 22) + " " + _rrect(302, 212, 44, 96, 22)),
+        ("cup-core", ink, _rrect(66, 236, 18, 48, 9) + " " + _rrect(316, 236, 18, 48, 9)),
+        ("visor", ink, _rrect(104, 204, 192, 100, 50)),
+    ]
+    openness = pose["open"]
+    height = max(6.0, 44 * openness)
+    eyes = " ".join(_rrect(x - 15 + gx * .8, 254 - height / 2 + gy * .8, 30, height, min(15, height / 2))
+                    for x in (156, 244))
+    parts.append(("leds", accent, eyes))
+    if openness > .5:
+        parts.append(("led-shine", "FFFFFF&\\1a&H70", " ".join(
+            _ellipse(x - 5 + gx * .8, 242 + gy * .8, 4, 6) for x in (156, 244))))
+    parts.append(("blush", "F29A84&\\1a&H90", _ellipse(126, 332, 16, 8) + " " + _ellipse(274, 332, 16, 8)))
+    for name, color, path in _mouth(pose):
+        parts.append((name, ink if name == "lip" else color, path))
+    parts.append(("mic", ink, "m 70 296 b 74 344 108 366 150 360 l 150 368 b 102 374 64 350 62 298 l 70 296"))
+    parts.append(("mic-tip", accent, _rrect(144, 352, 26, 20, 10)))
+    raise_, tilt = pose["brow"]
+    parts.append(("brows", ink, _brow(156, 184, raise_, tilt, False) + " " + _brow(244, 184, raise_, tilt, True)))
+    return parts
+
+
 def head_parts(look: dict, accent: str, pose: dict) -> list[tuple[str, str, str]]:
+    if look.get("kind") == "mascot":
+        return mascot_head_parts(look, accent, pose)
     skin, shade, hair = look["skin"], look["shade"], look["hair"]
     style = look["hairstyle"]
     parts = []
@@ -344,7 +385,7 @@ class Rig:
         wave_angle = None
         if scene.get("wave") and since < 1.6:
             wave_angle = 16 * math.sin(since * 2 * math.pi * 2.2)
-        return {"angle": angle, "bob": bob, "open": openness, "gaze": gaze, "mouth": mouth,
+        return {"level": level, "angle": angle, "bob": bob, "open": openness, "gaze": gaze, "mouth": mouth,
                 "brow": (brow_raise, brow_tilt), "wave": wave_angle, "mode": scene.get("host", "big"),
                 "since": since}
 
@@ -357,8 +398,8 @@ PLACEMENTS = {
 PIP_CIRCLE = (604.0, 822.0, 100.0)
 
 
-def placement(pose: dict) -> tuple[float, float, float]:
-    x, y, scale = PLACEMENTS[pose["mode"]]
+def placement(pose: dict, placements: dict | None = None) -> tuple[float, float, float]:
+    x, y, scale = (placements or PLACEMENTS)[pose["mode"]]
     entrance = (1 - _ease_out_back(pose["since"] / .45)) * 300 * scale
     return x, y + entrance, scale
 
@@ -375,7 +416,8 @@ def _stamp(cs: int) -> str:
 
 
 def puppet_events(*, look_id: str, accent_for, spans, scenes, duration: float,
-                  levels: list[float] | None, seed: str, layer: int = 4) -> list[str]:
+                  levels: list[float] | None, seed: str, layer: int = 4,
+                  placements: dict | None = None, pip_circle: tuple | None = None) -> list[str]:
     """ASS events drawing the rig at FPS, interpolating translation between frames."""
     look = LOOKS[look_id]
     rig = Rig(seed, spans, scenes, duration, levels)
@@ -384,7 +426,7 @@ def puppet_events(*, look_id: str, accent_for, spans, scenes, duration: float,
     marks = sorted({round(i * 100 / FPS) for i in range(math.ceil(duration * FPS) + 1)} | cuts)
     marks = [mark for mark in marks if 0 <= mark <= total]
     events = []
-    cx, cy, radius = PIP_CIRCLE
+    cx, cy, radius = pip_circle or PIP_CIRCLE
     pip_clip = rf"\clip({screen_circle(cx, cy, radius - 6)})"
     for a, b in zip(marks, marks[1:]):
         if b <= a:
@@ -393,8 +435,8 @@ def puppet_events(*, look_id: str, accent_for, spans, scenes, duration: float,
         pose = rig.pose(t0)
         if rig.scene_index(t0) != rig.scene_index(t1):
             t1 = t0
-        x0, y0, scale = placement(pose)
-        x1, y1, _ = placement(rig.pose(t1))
+        x0, y0, scale = placement(pose, placements)
+        x1, y1, _ = placement(rig.pose(t1), placements)
         body_y, head_y = pose["bob"] * .5 * scale, pose["bob"] * scale
         accent = accent_for(rig.scene_index(t0))
         clip = pip_clip if pose["mode"] == "pip" else ""

@@ -20,7 +20,7 @@ function desktop(t, env = {}) {
   const state = {
     exits: 0, signals: [], spawns: [], dialogs: [], windows: [], choice: 0,
     alive: true, firstError: null, projects: { items: [] },
-    status: { app: 'hype-studio', api_version: 3, project_root: projectRoot,
+    status: { app: 'hype-studio', api_version: 4, project_root: projectRoot,
       data_dir: path.join(temporary, 'userData', 'data') },
   };
   app.setName = () => {};
@@ -121,10 +121,10 @@ function desktop(t, env = {}) {
 
 test('existing services require the current protocol and the same project/data', async (t) => {
   const studio = desktop(t);
-  assert.equal((await studio.readStatus()).api_version, 3);
-  studio.state.status.api_version = 2;
-  await assert.rejects(studio.startBackend(), /eski veya uyumsuz/);
+  assert.equal((await studio.readStatus()).api_version, 4);
   studio.state.status.api_version = 3;
+  await assert.rejects(studio.startBackend(), /eski veya uyumsuz/);
+  studio.state.status.api_version = 4;
   studio.state.status.project_root = path.join(os.tmpdir(), 'another-hype-checkout');
   await assert.rejects(studio.startBackend(), /farklı proje veya veri/);
   studio.state.status.project_root = projectRoot;
@@ -148,7 +148,7 @@ test('backend uses project venv despite a base-Python override and owns its proc
   assert.equal(studio.state.exits, 1);
 });
 
-for (const status of ['queued', 'rendering', 'translating', 'uploading']) {
+for (const status of ['queued', 'rendering', 'translating', 'uploading', 'processing_audio']) {
   test(`${status} projects require explicit quit confirmation`, async (t) => {
     const studio = desktop(t);
     studio.connectionRefused();
@@ -160,6 +160,7 @@ for (const status of ['queued', 'rendering', 'translating', 'uploading']) {
     assert.equal(studio.state.dialogs[0].defaultId, 0);
     assert.equal(studio.state.dialogs[0].cancelId, 0);
     if (status === 'translating') assert.match(studio.state.dialogs[0].detail, /Türkçe çeviri/);
+    if (status === 'processing_audio') assert.match(studio.state.dialogs[0].detail, /ses işleme/);
     studio.state.choice = 1;
     await studio.requestQuit();
     assert.equal(studio.state.exits, 1);

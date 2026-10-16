@@ -53,6 +53,7 @@ Haber metinleri de telifli olabilir. Haberi kendi kısa anlatımınızla özetle
 | Yerel senaryo şablonu | Varsayılan. API anahtarı ve model indirmesi gerekmez. Kaynak dilini korur; çeviri veya yaratıcı yeniden yazım yapmaz. Metni düzenleyebilir ya da Ollama seçebilirsiniz. |
 | macOS `say` | Varsayılan ücretsiz seslendirme. Cihazda kurulu seslerden yararlanır. Türkçe ses yoksa Sistem Ayarları → Erişilebilirlik → Seslendirilen İçerik bölümünden Türkçe sesi indirin. |
 | Linux eSpeak | Ücretsiz ve yerel. Ses kalitesi ticari servislerden daha basittir. |
+| Hazır ses dosyası | MP3/WAV kaydını yükleyin. Uygulama ses API'si çağırmaz; kayıt için kullandığınız harici servisin kendi kotası ve koşulları geçerlidir. |
 | Ollama | İsteğe bağlı, cihazda çalışan ücretsiz dil modeli. Model indirme, RAM ve disk gerekir. |
 | ElevenLabs | İsteğe bağlı resmi API bağlantısı. Kendi anahtarınız ve ses kimliğiniz gerekir; ücretsiz kota ve ticari kullanım koşullarını sağlayıcı belirler. |
 | OpenAI / Anthropic | İsteğe bağlı resmi API bağlantıları. Kendi API anahtarınız gerekir; kullanım ücretli olabilir. |
@@ -66,6 +67,18 @@ ollama pull llama3.2:3b
 ```
 
 Ollama çalışırken panelde yerel modeli seçin. Varsayılan servis adresi `http://127.0.0.1:11434`, model adı `llama3.2:3b`. İlk indirme birkaç GB disk kullanabilir. İşlemci/GPU hızına göre üretim süresi değişir. Ollama temel video üretimi için zorunlu değildir.
+
+## ElevenLabs API'si olmadan kendi sesini kullan
+
+1. Video editöründe Türkçe senaryoyu tamamlayın. Seslendirme metninin altındaki **Metni kopyala** veya **Metni indir** düğmesi güncel metni önce kaydeder.
+2. Bu metni ElevenLabs web sitesinde veya başka bir ses aracında kendiniz seslendirin. Harici hesabın ücretsiz kota, indirme ve kullanım hakları o servise bağlıdır.
+3. **Kendi ses dosyanı kullan** bölümünde hazırladığınız **MP3 veya WAV** dosyasını seçip **Sesi yükle** düğmesine basın. En fazla **25 MB ve 90 saniye**, en az 0,4 saniye; mono veya stereo kayıt desteklenir. Dosya cihazınızda işlenir.
+4. Yüklemeden sonra **Yüklediğim ses dosyası** seçilir. Kaydı panelde dinleyin. **Altyazı zamanlarını düzenle** bölümünde gerekirse başlangıç/bitiş saniyelerini değiştirip kaydedin; bir altyazıya tıklayarak ilgili ses aralığını dinleyebilirsiniz.
+5. **Videoyu oluştur** düğmesi animasyonlu sahneleri, altyazıları ve yüklediğiniz sesi birleştirir. Video uzunluğu kaydın süresine göre belirlenir. Önizleyip MP4 ve SRT dosyalarını indirin.
+
+Otomatik altyazı zamanlaması sesin enerjisi, duraklamalar ve metin uzunluğundan **tahmin edilir**; konuşma tanıma veya kelime kelime doğrulanmış hizalama yapılmaz. Ses dosyası senaryoyla aynı metni içermelidir. Uzun bölümler, ayarladığınız zaman aralığı içinde en fazla iki satırlık altyazılara bölünür. Metni sonradan değiştirirseniz uygulama eski kaydı uyumsuz gösterir ve güncel metne uygun ses yüklemenizi ister. Başlık, açıklama veya etiketleri değiştirmek ses kaydını geçersiz kılmaz. Sesi değiştirdiğinizde video yeniden üretilir; hatalı bir yükleme önceki kaydı ve videoyu korur. Proje çoğaltma ve JSON dışa aktarma yalnızca metinleri taşır; ses dosyalarını taşımaz.
+
+Bu akış için ElevenLabs API anahtarı, yerel ses motoru veya dil modeli gerekmez; FFmpeg gerekir. Tamamen ücretsiz kalmak için yerel seslendirmeyi veya kendi ücretsiz kaydınızı kullanabilirsiniz.
 
 ## YouTube bağlantısı
 
@@ -107,7 +120,7 @@ Video oluşturma zaman alabilir; uygulamayı işlem bitene kadar açık tutun. A
 
 İsteğe bağlı gerçek tarayıcı kontrolü için önce sunucuyu başlatın; ayrı bir geliştirme ortamına `playwright==1.55.0` kurup `CHROMIUM_PATH` ile Chromium çalıştırılabilir dosyasını belirtin. `.venv/bin/python tests/ui_smoke.py` manuel taslak oluşturur, ücretsiz sesli video üretir, videonun 720×1280 olarak çözüldüğünü, SRT'yi ve yükleme onayını kontrol eder. Gerçek YouTube yüklemesi yapmaz. Başarılı çıktılar `artifacts/` altına ekran görüntüsü olarak kaydedilir.
 
-Bu geliştirme ortamında 176 Python testi ve 8 masaüstü yaşam döngüsü testi geçti. Gerçek tarayıcıda ücretsiz sesli video üretimi, metadata düzenleme, taslak koruması, proje arama/çoğaltma/dışa aktarma/silme ve 15 ekran/boyut kombinasyonu doğrulandı. Canlı RSS erişimi bulut proxy politikası nedeniyle engellendi; Google hesabı verilmediğinden gerçek YouTube yüklemesi ve API anahtarı gerektiren servisler çalıştırılmadı. Mac masaüstü başlatıcısının sözdizimi kontrol edildi; macOS üzerinde çalışma testi henüz yapılmadı.
+Bu geliştirme ortamında 243 Python testi ve 9 masaüstü yaşam döngüsü testi geçti. Gerçek tarayıcıda ücretsiz sesli video üretimi, metadata düzenleme, taslak koruması, proje arama/çoğaltma/dışa aktarma/silme ve 15 ekran/boyut kombinasyonu doğrulandı. Canlı RSS erişimi bulut proxy politikası nedeniyle engellendi; Google hesabı verilmediğinden gerçek YouTube yüklemesi ve API anahtarı gerektiren servisler çalıştırılmadı. Mac masaüstü başlatıcısının sözdizimi kontrol edildi; macOS üzerinde çalışma testi henüz yapılmadı.
 
 ## 0.2 sürümündeki iyileştirmeler
 
@@ -148,3 +161,13 @@ Bütün grafikler uygulama içinde üretilir. Bu özellik ücretli stok video, m
 [Gerçek animasyonlu örnek MP4](docs/animated-example.mp4)
 
 `tests/translation_ui_smoke.py`, ayrı bir yerel ve belirli yanıt veren model taklidiyle gerçek HTTP çeviri bağlantısını ve arayüzü doğrular. Bu, gerçek bir dil modelinin çeviri kalitesi testi değildir. Bulut makinesinde Ollama model indirme adresleri proxy403 ile engellendiği için gerçek model çalıştırılmadı; gerçek animasyonlu video ve Türkçe yerel seslendirme ise FFmpeg ile üretildi.
+
+## 0.4: Hazır ses dosyasıyla kurgu
+
+- Kaydedilmiş güncel senaryoyu panoya kopyalama ve UTF-8 TXT indirme.
+- Yerel MP3/WAV yükleme, ses önizlemesi, güvenli değiştirme ve kaldırma.
+- Yüklenen kaydın süresine göre animasyonlu veya klasik video; seslendirme API'si çağrılmaz.
+- Tahmini altyazı zamanları ve elle düzeltme; metin değiştiğinde eski sesle üretimin engellenmesi.
+- Ayrı ses yükleme limiti; diğer API isteklerinin 64 KiB sınırı korunur. İşleme sırasında proje düzenleme/silme kilidi ve masaüstü çıkış uyarısı.
+
+`HYPE_BROWSER_NO_SANDBOX=1 .venv/bin/python tests/audio_ui_smoke.py` gerçek Türkçe yerel kaydı arayüzden yükleyerek TXT indirme, ses önizleme, zaman düzeltme ve gerçek animasyonlu MP4/SRT üretimini kontrol eder. ElevenLabs web sitesine veya API'sine bağlanmaz.

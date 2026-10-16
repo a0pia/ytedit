@@ -16,7 +16,7 @@
 
 ## Doğrulama
 
-- 176 Python testi ve 8 masaüstü yaşam döngüsü testi başarılı.
+- 243 Python testi ve 9 masaüstü yaşam döngüsü testi başarılı.
 - Gerçek Türkçe yerel sesli ve sessiz video çıktıları FFmpeg/ffprobe ile doğrulandı.
 - Gerçek tarayıcıda taslak oluşturma, düzenleme, video üretme, oynatılabilir video boyutları, SRT ve yükleme onayı doğrulandı.
 - Masaüstü başlatıcısının ve kurulum betiklerinin sözdizimi kontrolleri başarılı.
@@ -48,3 +48,12 @@ Kurulum ve başlatma yönergeleri ortam yapılandırma taslağının `install_sc
 - Gerçek sesli animasyonlu örnek: 22,5 saniye ve 7 sahne. Farklı zamanlardaki kareler ve sahne içindeki hareket doğrulandı.
 - Yabancı haber → kontrollü yerel HTTP model yanıtı → Türkçe proje → gerçek animasyonlu MP4/ses/SRT akışı tarayıcıda doğrulandı. Bu kontrollü model yanıtları, gerçek modelin çeviri kalitesini ölçmez.
 - Bu bulut ortamında `registry.ollama.ai` ve `ollama.com` adresleri proxy403 ile engellendiği için gerçek Ollama modeli indirilmedi/çalıştırılmadı. Mac'te ücretsiz kurulum adımları README.md içinde.
+
+## 0.4: Yüklenen ses kaydı
+
+- Güncel Türkçe senaryoyu kopyalama ve TXT olarak indirme.
+- MP3/WAV kaydını yerel yükleme, dinleme, değiştirme ve kaldırma. Dosya en fazla 25 MB ve 90 saniye olabilir.
+- Yüklenen kaydın gerçek süresiyle animasyonlu video ve SRT üretimi; bu yolda yerel TTS veya ses API'si çalıştırılmaz.
+- Otomatik zamanlama ses enerjisi/duraklamalardan tahmin edilir; kelime tanıma yapılmaz. Zamanlar panelde elle düzeltilebilir.
+- Senaryo değişirse mevcut ses uyumsuz gösterilir ve yeniden ses yükleme gerekir. Hatalı ses yüklemesi önceki ses/video kaydını korur.
+- Gerçek WAV/MP3 çözme, sesin korunması, altyazı doğrulama, işlem kilitleri ve dosya temizliği testlerle doğrulandı.

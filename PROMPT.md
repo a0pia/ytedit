@@ -19,3 +19,12 @@
 - Orijinal haber metni ve kaynak korunarak çeviri karşılaştırılabilsin.
 - Videolar tek görsel üzerinde dönmesin: dikkat çeken hareketli giriş, sahne değişimleri, animasyonlu yazılar ve vurgu kartları kullanılsın.
 - Ücretsiz, uygulamanın kendisinin oluşturduğu grafikler ve yerel araçlar varsayılan olmaya devam etsin.
+
+## Harici ses dosyası için eklenen istek
+
+birde elevelabs api si paralıymış videodaki metni bize verse video sonra ben kendim manuel elevenlabste ses dosyasını oluşturup uygulamaya atsam sonra uygulama bu ses dosyasına göre edit yapsa olur mu bu şekilde
+
+- Güncel Türkçe seslendirme metni kopyalanabilsin ve TXT olarak indirilebilsin.
+- ElevenLabs web sitesi veya başka bir araçta kullanıcı tarafından hazırlanan MP3/WAV kaydı projeye yüklenebilsin; bu yol için ücretli ses API'si çağrılmasın.
+- Video süresi ve animasyonlu sahneler yüklenen kaydın süresine göre hazırlansın.
+- Altyazı süreleri konuşma/sessizlik aralıklarından tahmin edilsin, kullanıcı başlangıç/bitiş saniyelerini düzeltebilsin. Kaydın aynı senaryo metnini içermesi gereksinimi açıkça belirtilsin.

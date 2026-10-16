@@ -69,6 +69,9 @@
     pollInFlight: false,
     confirmResolver: null,
     translatingProjectIds: new Set(),
+    audioBusy: false,
+    audioTimingDirty: false,
+    audioTimingKey: "",
   };
   const labels = {
     dashboard: "Genel bakış",
@@ -86,6 +89,7 @@
     uploaded: "YouTube’a yüklendi",
     uploading: "Yükleniyor",
     translating: "Türkçeye çevriliyor",
+    processing_audio: "Ses işleniyor",
   };
 
   function el(tag, className, text) {
@@ -264,7 +268,11 @@
     if (resolve) resolve(accepted);
   }
   async function canDiscard() {
-    if (!state.dirty) return true;
+    if (state.audioBusy) {
+      toast("Ses dosyası işleminin tamamlanmasını bekle.");
+      return false;
+    }
+    if (!state.dirty && !state.audioTimingDirty) return true;
     const accepted = await askConfirmation(
       "Kaydedilmemiş değişiklikler var",
       "Bu projedeki düzenlemelerin henüz kaydedilmedi. Devam edersen bu değişiklikler silinecek.",
@@ -272,12 +280,13 @@
     );
     if (accepted) {
       state.dirty = false;
+      state.audioTimingDirty = false;
       if (state.selected) fillEditor(state.selected);
     }
     return accepted;
   }
   function activeProject(project) {
-    return ["queued", "rendering", "uploading", "translating"].includes(project?.status) ||
+    return ["queued", "rendering", "uploading", "translating", "processing_audio"].includes(project?.status) ||
       state.translatingProjectIds.has(project?.id);
   }
   function markDirty() {
@@ -626,8 +635,12 @@
     elevenOption.disabled =
       !status.elevenlabs && !status.configured?.elevenlabs;
     elevenOption.textContent = elevenOption.disabled
-      ? "ElevenLabs · yapılandırılmamış"
-      : "ElevenLabs · kota/ücret olabilir";
+      ? "ElevenLabs API · yapılandırılmamış"
+      : "ElevenLabs API · kota/ücret olabilir";
+    const audioLimits = status.audio_upload;
+    if (audioLimits) $("#voice-upload-limits").textContent = "MP3 veya WAV · en fazla " +
+      Math.round((audioLimits.max_bytes || 26214400) / 1024 / 1024) + " MB / " +
+      (audioLimits.max_duration || 90) + " saniye";
     renderTranslationHelp();
   }
   function renderTranslationHelp() {
@@ -827,7 +840,7 @@
     dialog._draftSource = values;
     clearError("#new-project-error");
     dialog.showModal();
-    setTimeout(() => $("#new-title").focus(), 50);
+    $("#new-title").focus();
   }
   async function showTranslation(article) {
     if (!(await canDiscard())) return;
@@ -967,6 +980,224 @@
     $("#preview-title").textContent =
       $("#edit-title").value || "Hikâyene bir başlık ver.";
   }
+  function audioIsStale(project) {
+    const normalize = (value) => value.normalize("NFC").replace(/\s+/g, " ").trim();
+    return !!project.audio && (project.audio.valid === false ||
+      normalize($("#edit-script").value) !== normalize(project.script || ""));
+  }
+  function updateAudio(project) {
+    const audio = project.audio;
+    const locked = activeProject(project) || state.audioBusy;
+    const stale = audioIsStale(project);
+    const provider = $("#tts-provider");
+    $('option[value="uploaded"]', provider).disabled = !audio;
+    if (!audio && provider.value === "uploaded") provider.value = "local";
+    $("#audio-file-panel").hidden = !audio;
+    $("#audio-warning").hidden = !stale;
+    $("#audio-warning").textContent = stale
+      ? "Metin değişti. Aynı metinden üretilen sesi yeniden yükle." : "";
+    $("#copy-script").disabled = locked;
+    $("#download-script").disabled = locked;
+    $("#voice-file").disabled = locked;
+    $("#upload-voice").disabled = locked || !$("#voice-file").files.length;
+    $("#upload-voice").setAttribute("aria-busy", state.audioBusy ? "true" : "false");
+    $("#remove-audio").disabled = locked || !audio;
+    $("#save-audio-timings").disabled = locked || stale || !audio || !state.audioTimingDirty;
+    if (provider.value === "uploaded")
+      $("#render-project").disabled = locked || !audio || stale || state.audioTimingDirty;
+    else $("#render-project").disabled = locked;
+    const preview = $("#audio-preview");
+    if (!audio) {
+      preview.pause();
+      preview.removeAttribute("src");
+      $("#audio-info").textContent = "";
+      $("#audio-timings-body").replaceChildren();
+      state.audioTimingKey = "";
+      state.audioTimingDirty = false;
+      return;
+    }
+    const duration = Number(audio.duration) || 0;
+    $("#audio-info").textContent = audio.filename + " · " +
+      duration.toLocaleString("tr-TR", { maximumFractionDigits: 2 }) + " saniye" +
+      (stale ? " · metinle eşleşmiyor" : " · seslendirmeye hazır");
+    $("#audio-timing-mode").textContent = audio.timing_mode === "manual"
+      ? "Elle düzenlenmiş zamanlama" : "Konuşma aralıklarından tahmini zamanlama";
+    const href = safeUrl(audio.url, true);
+    if (href) {
+      const url = new URL(href);
+      url.searchParams.set("v", audio.uploaded_at || audio.filename || "audio");
+      if (preview.src !== url.href) {
+        preview.src = url.href;
+        preview.load();
+      }
+    } else preview.removeAttribute("src");
+    const key = project.id + ":" + JSON.stringify([audio.uploaded_at, audio.script_hash, audio.captions]);
+    if (state.audioTimingKey !== key) {
+      state.audioTimingKey = key;
+      state.audioTimingDirty = false;
+      const rows = (audio.captions || []).map((caption, index) => {
+        const row = el("tr");
+        const text = el("td", "audio-caption-text");
+        const listen = el("button", "audio-caption-listen", caption.text);
+        listen.type = "button";
+        listen.title = "Bu altyazı aralığını dinle";
+        listen.setAttribute("aria-label", "Dinle: " + caption.text);
+        listen.addEventListener("click", () => {
+          const input = $('[data-timing-index="' + index + '"][data-timing-field="start"]');
+          preview.currentTime = Math.max(0, Number(input.value) || 0);
+          preview.play().catch(() => toast("Sesi dinlemek için oynat düğmesine bas."));
+        });
+        text.append(listen);
+        row.append(text);
+        ["start", "end"].forEach((field) => {
+          const cell = el("td");
+          const input = el("input", "text-input audio-time-input");
+          input.type = "number";
+          input.min = "0";
+          input.max = String(duration);
+          input.step = "any";
+          input.value = String(caption[field]);
+          input.dataset.timingIndex = String(index);
+          input.dataset.timingField = field;
+          input.setAttribute("aria-label", (index + 1) + ". altyazı " + (field === "start" ? "başlangıç" : "bitiş") + " saniyesi");
+          cell.append(input);
+          row.append(cell);
+        });
+        return row;
+      });
+      $("#audio-timings-body").replaceChildren(...rows);
+    }
+    $$("#audio-timings-body input").forEach((input) => { input.disabled = locked || stale; });
+    $$("#audio-timings-body button").forEach((button) => { button.disabled = locked; });
+    if (state.audioTimingDirty) $("#audio-timing-mode").textContent += " · Kaydedilmedi";
+    $("#save-audio-timings").disabled = locked || stale || !state.audioTimingDirty;
+  }
+  async function copyScript() {
+    if (!state.selected || activeProject(state.selected) || state.audioBusy) return;
+    await busy($("#copy-script"), async () => {
+      try {
+        const project = await saveCurrent(false);
+        let copied = false;
+        try {
+          await navigator.clipboard.writeText(project.script);
+          copied = true;
+        } catch {}
+        if (!copied) {
+          const field = el("textarea", "clipboard-fallback");
+          field.value = project.script;
+          field.setAttribute("readonly", "");
+          document.body.append(field);
+          field.select();
+          try { copied = document.execCommand("copy"); } catch {}
+          field.remove();
+        }
+        if (!copied) {
+          $("#edit-script").focus();
+          $("#edit-script").select();
+          throw new Error("Metin seçildi. Kopyalamak için ⌘C veya Ctrl+C kullan.");
+        }
+        toast("Seslendirme metni kopyalandı.");
+      } catch (error) { toast(error.message, true); }
+    });
+    if (state.selected) updateAudio(state.selected);
+  }
+  async function downloadScript() {
+    if (!state.selected || activeProject(state.selected) || state.audioBusy) return;
+    await busy($("#download-script"), async () => {
+      try {
+        const project = await saveCurrent(false);
+        const link = el("a");
+        link.href = "/api/projects/" + encodeURIComponent(project.id) + "/script";
+        link.download = "seslendirme.txt";
+        document.body.append(link);
+        link.click();
+        link.remove();
+      } catch (error) { toast(error.message, true); }
+    });
+    if (state.selected) updateAudio(state.selected);
+  }
+  async function audioOperation(work) {
+    if (!state.selected || activeProject(state.selected) || state.audioBusy) return;
+    clearError("#audio-error");
+    state.audioBusy = true;
+    updatePreview(state.selected);
+    try { await work(); }
+    catch (error) { showError("#audio-error", error.message); }
+    finally {
+      state.audioBusy = false;
+      if (state.selected) updatePreview(state.selected);
+    }
+  }
+  function receiveAudioProject(project) {
+    updateProject(project);
+    if (state.selected?.id !== project.id) return;
+    state.selected = project;
+    state.audioTimingDirty = false;
+    state.audioTimingKey = "";
+    updatePreview(project);
+  }
+  async function uploadVoice() {
+    const file = $("#voice-file").files[0];
+    if (!file) return;
+    const maxBytes = state.status?.audio_upload?.max_bytes || 25 * 1024 * 1024;
+    if (!/\.(mp3|wav)$/i.test(file.name))
+      return showError("#audio-error", "MP3 veya WAV dosyası seç.");
+    if (file.size > maxBytes)
+      return showError("#audio-error", "Ses dosyası en fazla " + Math.round(maxBytes / 1024 / 1024) + " MB olabilir.");
+    await audioOperation(async () => {
+      const saved = await saveCurrent(false);
+      const form = new FormData();
+      form.append("file", file);
+      const project = projectFromResponse(await api("/api/projects/" + encodeURIComponent(saved.id) + "/audio", {
+        method: "POST", headers: {}, body: form,
+      }));
+      receiveAudioProject(project);
+      if (state.selected?.id === project.id) {
+        $("#tts-provider").value = "uploaded";
+        $("#voice-file").value = "";
+        $("#voice-workflow").open = true;
+      }
+      toast("Ses dosyası hazır. Videon bu seslendirmeyle oluşturulacak.");
+    });
+  }
+  async function removeAudio() {
+    if (!state.selected?.audio || activeProject(state.selected) || state.audioBusy) return;
+    const id = state.selected.id;
+    const accepted = await askConfirmation("Yüklenen ses kaldırılsın mı?",
+      "Ses dosyası bu projeden silinecek. Yeniden kullanmak için orijinal dosyanı sakla. Videoya tekrar ses eklemek istersen dosyayı yeniden yükleyebilirsin.", "Sesi kaldır");
+    if (!accepted || state.selected?.id !== id) return;
+    await audioOperation(async () => {
+      const project = projectFromResponse(await api("/api/projects/" + encodeURIComponent(id) + "/audio", { method: "DELETE" }));
+      receiveAudioProject(project);
+      if (state.selected?.id === id) $("#tts-provider").value = "local";
+      toast("Yüklenen ses kaldırıldı. Yerel ses seçildi.");
+    });
+  }
+  async function saveAudioTimings() {
+    if (!state.selected?.audio || audioIsStale(state.selected) || !state.audioTimingDirty) return;
+    if ($$("#audio-timings-body input").some((input) => !input.value.trim()))
+      return showError("#audio-error", "Her altyazı için başlangıç ve bitiş saniyesini yaz.");
+    const captions = state.selected.audio.captions.map((caption, index) => ({
+      text: caption.text,
+      start: Number($('[data-timing-index="' + index + '"][data-timing-field="start"]').value),
+      end: Number($('[data-timing-index="' + index + '"][data-timing-field="end"]').value),
+    }));
+    let previousEnd = 0;
+    for (const caption of captions) {
+      if (!Number.isFinite(caption.start) || !Number.isFinite(caption.end) ||
+          caption.start < previousEnd || caption.end <= caption.start || caption.end > Number(state.selected.audio.duration))
+        return showError("#audio-error", "Zamanlar sıralı olmalı; her başlangıç önceki bitişten sonra, bitiş de sesin süresi içinde olmalı.");
+      previousEnd = caption.end;
+    }
+    await audioOperation(async () => {
+      const saved = await saveCurrent(false);
+      const project = projectFromResponse(await api("/api/projects/" + encodeURIComponent(saved.id) + "/audio/timings", {
+        method: "PATCH", body: JSON.stringify({ captions }),
+      }));
+      receiveAudioProject(project);
+      toast("Altyazı zamanları kaydedildi. Videoyu yeniden oluşturarak kontrol edebilirsin.");
+    });
+  }
   function updatePreview(project) {
     const video = $("#preview-video");
     const hasVideo = !!safeUrl(project.video_url, true);
@@ -991,21 +1222,24 @@
     $("#download-subtitles").hidden = !subtitle;
     if (subtitle) $("#download-subtitles").href = subtitle;
     const running = activeProject(project);
+    const locked = running || state.audioBusy;
     $$(
       "#editor-form input, #editor-form textarea, #editor-form select, #editor-form button, .render-settings select, .theme-picker input",
     ).forEach((control) => {
-      control.disabled = running;
+      control.disabled = locked;
     });
     const published = !!(project.youtube_id || project.youtube_url);
-    $("#translate-project").disabled = running || published;
+    $("#translate-project").disabled = locked || published;
     $("#editor-translation-notice").hidden = !published;
     $("#editor-translation-notice").textContent = published
       ? "Yayımlanmış videoyu korumak için Videolarım'da projeyi çoğalt, ardından kopyayı Türkçeye çevir."
       : "";
-    $("#render-project").disabled = running;
+    $("#render-project").disabled = locked;
     $("#render-progress").hidden = !running;
     $("#render-progress-text").textContent =
-      project.status === "queued"
+      project.status === "processing_audio"
+        ? "Ses dosyası işleniyor…"
+        : project.status === "queued"
         ? "Üretim sırasında bekliyor…"
         : project.status === "uploading"
           ? "YouTube’a yükleniyor…"
@@ -1034,7 +1268,10 @@
     designSummary.hidden = !hasVideo || !design;
     designSummary.textContent = (design === "classic" ? "Klasik tasarım" : "Animasyonlu sahneler") +
       (Number.isFinite(Number(project.scene_count)) && Number(project.scene_count) > 0
-        ? " · " + Number(project.scene_count) + " sahne" : "");
+        ? " · " + Number(project.scene_count) + " sahne" : "") +
+      (Number(project.duration) > 0 ? " · " + Number(project.duration).toLocaleString("tr-TR", { maximumFractionDigits: 1 }) + " sn" : "") +
+      (project.subtitle_timing === "audio_estimated" ? " · Tahmini altyazı zamanlaması" :
+        ["manual", "audio_manual"].includes(project.subtitle_timing) ? " · Elle düzenlenmiş altyazı zamanlaması" : "");
     $("#upload-project").disabled = running || !!project.youtube_url;
     if (project.youtube_url) {
       $("#upload-project").replaceChildren(
@@ -1064,6 +1301,7 @@
     } else if (youtubeLink) youtubeLink.hidden = true;
     if (project.error) showStudioError(project.error);
     else showStudioError("");
+    updateAudio(project);
   }
   function showStudioError(message) {
     let target = $("#studio-error");
@@ -1113,6 +1351,19 @@
     });
     $("#editor-original").hidden = !original.childElementCount;
     $("#video-design").value = project.render_options?.video_design || project.design || "kinetic";
+    const savedOptions = project.render_options;
+    const savedProvider = savedOptions?.tts_provider;
+    let voiceProvider = savedOptions ? "local" : project.audio ? "uploaded" : "local";
+    if (savedOptions?.speech === false) voiceProvider = "none";
+    else if (savedProvider === "local" || savedProvider === "uploaded" && project.audio ||
+        savedProvider === "elevenlabs" && !$('#tts-provider option[value="elevenlabs"]').disabled)
+      voiceProvider = savedProvider;
+    $("#tts-provider").value = voiceProvider;
+    $("#voice-file").value = "";
+    state.audioTimingDirty = false;
+    state.audioTimingKey = "";
+    $("#voice-workflow").open = !!project.audio;
+    clearError("#audio-error");
     clearError("#editor-translation-error");
     state.dirty = false;
     markDirty();
@@ -1245,12 +1496,16 @@
       try {
         const project = await saveCurrent(false);
         const provider = $("#tts-provider").value;
+        if (provider === "uploaded" && (!project.audio || project.audio.valid === false))
+          throw new Error("Metin değişti. Aynı metinden üretilen sesi yeniden yükle.");
+        if (provider === "uploaded" && state.audioTimingDirty)
+          throw new Error("Videoyu oluşturmadan önce altyazı zamanlarını kaydet.");
         const options = {
           voice: "tr",
           style: $('input[name="render-style"]:checked').value,
           video_design: $("#video-design").value,
           speech: provider !== "none",
-          tts_provider: provider === "elevenlabs" ? "elevenlabs" : "local",
+          tts_provider: ["elevenlabs", "uploaded"].includes(provider) ? provider : "local",
         };
         const result = projectFromResponse(
           await api(
@@ -1498,7 +1753,25 @@
       state.dirty = true;
       markDirty();
       countWords();
+      if (state.selected) updateAudio(state.selected);
     });
+    $("#copy-script").addEventListener("click", copyScript);
+    $("#download-script").addEventListener("click", downloadScript);
+    $("#voice-file").addEventListener("change", () => {
+      clearError("#audio-error");
+      if (state.selected) updateAudio(state.selected);
+    });
+    $("#upload-voice").addEventListener("click", uploadVoice);
+    $("#remove-audio").addEventListener("click", removeAudio);
+    $("#tts-provider").addEventListener("change", () => {
+      if (state.selected) updateAudio(state.selected);
+    });
+    $("#audio-timings-body").addEventListener("input", () => {
+      state.audioTimingDirty = true;
+      clearError("#audio-error");
+      if (state.selected) updateAudio(state.selected);
+    });
+    $("#save-audio-timings").addEventListener("click", saveAudioTimings);
     $("#render-project").addEventListener("click", renderProject);
     $("#upload-project").addEventListener("click", showUpload);
     $("#upload-form").addEventListener("submit", uploadProject);
@@ -1531,7 +1804,7 @@
     window.addEventListener("focus", refreshOnFocus);
     document.addEventListener("visibilitychange", refreshOnFocus);
     window.addEventListener("beforeunload", (event) => {
-      if (state.dirty) {
+      if (state.dirty || state.audioTimingDirty || state.audioBusy) {
         event.preventDefault();
         event.returnValue = "";
       }

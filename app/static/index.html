@@ -479,8 +479,41 @@
                   id="edit-script"
                   required
                   placeholder="Hikâyeni burada anlat…"
-                ></textarea
-                ><label class="field-label" for="edit-description"
+                ></textarea>
+                <div class="script-actions">
+                  <button type="button" class="text-button" id="copy-script"><span data-icon="copy"></span>Metni kopyala</button>
+                  <button type="button" class="text-button" id="download-script"><span data-icon="download"></span>Metni indir</button>
+                </div>
+                <details id="voice-workflow" class="voice-workflow">
+                  <summary><span data-icon="audio"></span>Kendi ses dosyanı kullan <span>API gerekmez</span></summary>
+                  <ol class="voice-steps">
+                    <li>Son seslendirme metnini kopyala veya indir.</li>
+                    <li><a href="https://elevenlabs.io/" target="_blank" rel="noopener noreferrer">ElevenLabs web sitesinde</a> aynı metni seslendir ve MP3 / WAV olarak indir. Başka bir seslendirme ya da kayıt uygulamasını da kullanabilirsin.</li>
+                    <li>Ses dosyanı buraya yükle. Video süresi ve sahneler sesin süresine göre hazırlanır.</li>
+                  </ol>
+                  <p class="field-help">Bu akışta API anahtarı gerekmez. Metni değiştirdiğinde aynı metinden yeni bir ses dosyası üret.</p>
+                  <label class="field-label" for="voice-file">Ses dosyası</label>
+                  <div class="voice-upload-row">
+                    <input class="text-input" id="voice-file" type="file" accept=".mp3,.wav,audio/mpeg,audio/wav,audio/x-wav" aria-describedby="voice-upload-limits" />
+                    <button class="button button-outline" type="button" id="upload-voice"><span data-icon="upload"></span>Sesi yükle</button>
+                  </div>
+                  <p class="field-help" id="voice-upload-limits">MP3 veya WAV · en fazla 25 MB / 90 saniye</p>
+                  <div id="audio-error" class="inline-warning" role="alert" hidden></div>
+                  <div id="audio-warning" class="inline-warning" role="status" hidden></div>
+                  <div id="audio-file-panel" class="audio-file-panel" hidden>
+                    <p id="audio-info" class="field-help" role="status"></p>
+                    <audio id="audio-preview" controls preload="metadata" aria-label="Yüklenen seslendirmeyi dinle"></audio>
+                    <div class="audio-file-actions"><button class="text-button" id="remove-audio" type="button"><span data-icon="trash"></span>Yüklenen sesi kaldır</button></div>
+                    <details id="audio-timings" class="audio-timings">
+                      <summary>Altyazı zamanlarını düzenle</summary>
+                      <p class="field-help" id="audio-timing-mode">Konuşma aralıklarından tahmini zamanlama</p>
+                      <p class="field-help">Bir altyazıya tıklayarak o aralığı dinle; başlangıç ve bitiş saniyelerini ayarla. Altyazı metni seslendirme metninden alınır.</p>
+                      <div class="audio-timing-table"><table><thead><tr><th scope="col">Altyazı</th><th scope="col">Başlangıç</th><th scope="col">Bitiş</th></tr></thead><tbody id="audio-timings-body"></tbody></table></div>
+                      <button class="button button-outline" id="save-audio-timings" type="button"><span data-icon="check"></span>Zamanları kaydet</button>
+                    </details>
+                  </div>
+                </details>
+                <label class="field-label" for="edit-description"
                   >YouTube açıklaması</label
                 ><textarea
                   class="text-input"
@@ -596,12 +629,12 @@
                     >Seslendirme</label
                   ><select class="text-input" id="tts-provider">
                     <option value="local">Yerel ses · ücretsiz</option>
+                    <option value="uploaded" disabled>Yüklediğim ses dosyası</option>
                     <option value="elevenlabs">ElevenLabs · API gerekli</option>
                     <option value="none">Sessiz video + altyazı</option>
                   </select>
                   <p class="field-help">
-                    Türkçe ses ve senkron altyazı. Yerel ses üretimi cihazında
-                    çalışır.
+                    Kendi ses dosyanı metnin altından yükleyebilirsin. Yerel ses üretimi cihazında çalışır.
                   </p>
                   <div id="render-progress" class="render-progress" hidden>
                     <div>

@@ -2,6 +2,7 @@
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from datetime import datetime, timezone
+import hashlib
 import json
 import logging
 import os
@@ -12,6 +13,7 @@ import shutil
 import sqlite3
 import threading
 import time
+import unicodedata
 from urllib.parse import urlparse
 import uuid
 
@@ -19,15 +21,31 @@ from dotenv import load_dotenv
 from flask import Flask, jsonify, request, send_from_directory, Response
 import requests
 from werkzeug.exceptions import HTTPException
+from werkzeug.utils import secure_filename
 
-from . import media, news, writing, youtube, translation
+from . import audio, media, news, writing, youtube, translation
 
 ROOT = Path(__file__).resolve().parent.parent
+MAX_UPLOAD_BYTES = 25 * 1024 * 1024
+ACTIVE_STATUSES = {'queued', 'rendering', 'uploading', 'translating', 'processing_audio'}
+VIDEO_FIELDS = ('video_url', 'subtitle_url', 'video_path', 'duration', 'render_options',
+                'provider', 'voice', 'speech', 'subtitle_timing', 'scene_count', 'design')
 load_dotenv(ROOT / '.env')
 
 
 def now():
     return datetime.now(timezone.utc).isoformat()
+
+
+def script_hash(script):
+    normalized = ' '.join(unicodedata.normalize('NFC', script).split())
+    return hashlib.sha256(normalized.encode('utf-8')).hexdigest()
+
+
+def invalidate_video(value):
+    for key in VIDEO_FIELDS:
+        value.pop(key, None)
+    value.update(status='draft', progress=0, error=None)
 
 
 def create_app(data_dir=None, testing=False):
@@ -36,6 +54,7 @@ def create_app(data_dir=None, testing=False):
     data.mkdir(parents=True, exist_ok=True, mode=0o700)
     data.chmod(0o700)
     (data / 'renders').mkdir(exist_ok=True)
+    (data / 'audio').mkdir(exist_ok=True)
     secret_path = data / '.session-key'
     if not secret_path.exists():
         fd = os.open(secret_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
@@ -73,7 +92,7 @@ def create_app(data_dir=None, testing=False):
         # A process restart cannot leave jobs pretending to run.
         for pid, body in db.execute("SELECT id,body FROM documents WHERE kind='project'"):
             project = json.loads(body)
-            if project.get('status') in {'queued', 'rendering', 'uploading', 'translating'}:
+            if project.get('status') in ACTIVE_STATUSES:
                 if project.get('status') == 'uploading':
                     project['upload_uncertain'] = True
                 project.update(status='error', error='İşlem uygulama kapandığı için tamamlanamadı. Tekrar deneyin.')
@@ -95,8 +114,46 @@ def create_app(data_dir=None, testing=False):
         with connection() as db:
             return [json.loads(row[0]) for row in db.execute('SELECT body FROM documents WHERE kind=? ORDER BY rowid DESC', (kind,))]
 
+    def audio_file(value):
+        """Only a canonical file owned by this project may be streamed or rendered."""
+        ident, stored = value.get('id', ''), value.get('audio_path')
+        if not re.fullmatch(r'[a-f0-9]{32}', ident) or not isinstance(stored, str):
+            return None
+        base = data / 'audio' / ident
+        candidate = Path(stored)
+        try:
+            relative = candidate.relative_to(base)
+            if len(relative.parts) != 2 or not re.fullmatch(r'[a-f0-9]{32}', relative.parts[0]) or relative.name != 'audio.wav':
+                return None
+            if any(path.is_symlink() for path in (data / 'audio', base, candidate.parent, candidate)):
+                return None
+            if candidate.is_file() and candidate.resolve().is_relative_to(base.resolve()):
+                return candidate
+        except (OSError, ValueError):
+            pass
+        return None
+
+    def valid_audio(value):
+        metadata = value.get('audio')
+        return (isinstance(metadata, dict) and metadata.get('script_hash') == script_hash(value['script'])
+                and audio_file(value) is not None)
+
     def public_project(value):
-        return {key: item for key, item in value.items() if key not in {'video_path'}}
+        result = {key: item for key, item in value.items() if key not in
+                  {'video_path', 'audio_path', 'audio_captions', 'audio_timing_mode'}}
+        if isinstance(value.get('audio'), dict):
+            result['audio'] = {**value['audio'], 'valid': valid_audio(value),
+                               'url': f'/api/projects/{value["id"]}/audio/file'}
+        return result
+
+    def remove_owned_directory(target):
+        # Never follow stored paths or directory symlinks when removing assets.
+        if target.parent.is_symlink():
+            raise ValueError('Dosya dizini güvenli değil.')
+        if target.is_symlink():
+            target.unlink()
+        elif target.is_dir():
+            shutil.rmtree(target)
 
     def cached_news():
         result = []
@@ -131,6 +188,9 @@ def create_app(data_dir=None, testing=False):
         except ValueError:
             from flask import abort
             abort(404, description='Proje bulunamadı')
+
+    def is_busy(ident):
+        return ident in active or project(ident).get('status') in ACTIVE_STATUSES
 
     def body():
         if not request.is_json:
@@ -173,6 +233,10 @@ def create_app(data_dir=None, testing=False):
 
     @app.before_request
     def local_only():
+        # Multipart audio gets a separate limit; JSON requests remain capped at 64 KiB.
+        if request.method == 'POST' and re.fullmatch(r'/api/projects/[a-f0-9]{32}/audio', request.path):
+            request.max_content_length = MAX_UPLOAD_BYTES + 64 * 1024
+            request.max_form_parts = 4
         if app.testing:
             return
         # Block DNS rebinding and cross-origin writes to the local API.
@@ -199,7 +263,7 @@ def create_app(data_dir=None, testing=False):
     def error(exc):
         if isinstance(exc, HTTPException):
             return jsonify(error=exc.description), exc.code
-        if isinstance(exc, (ValueError, media.MediaError)):
+        if isinstance(exc, (ValueError, media.MediaError, audio.AudioError)):
             return jsonify(error=str(exc)), 400
         if isinstance(exc, requests.RequestException):
             # Request URLs and response bodies can contain credentials. Never echo them.
@@ -225,12 +289,14 @@ def create_app(data_dir=None, testing=False):
             except (requests.RequestException, ValueError, TypeError):
                 ollama_cache['ready'] = False
             ollama_cache['checked'] = time.monotonic()
-        return jsonify(app='hype-studio', api_version=3, app_version='0.3.0', project_root=str(ROOT), data_dir=str(data),
+        return jsonify(app='hype-studio', api_version=4, app_version='0.4.0', project_root=str(ROOT), data_dir=str(data),
                        **caps, ai=ollama_cache['ready'],
+                       audio_upload={'formats': ['mp3', 'wav'], 'max_bytes': MAX_UPLOAD_BYTES,
+                                     'max_duration': audio.MAX_DURATION, 'subtitle_timing': 'estimated'},
                        youtube=token_path.exists() and youtube.configured(), youtube_configured=youtube.configured(),
                        stats={'news': len(cached_news()), 'projects': len(projects),
                               'ready': sum(p.get('status') == 'ready' and bool(p.get('video_url')) for p in projects),
-                              'active': sum(p.get('status') in {'queued', 'rendering', 'uploading', 'translating'} for p in projects)},
+                              'active': sum(p.get('status') in ACTIVE_STATUSES for p in projects)},
                        translation={'target_language': 'tr', 'default_provider': 'ollama',
                                     'providers': {'ollama': ollama_cache['ready'], 'openai': bool(os.getenv('OPENAI_API_KEY')),
                                                   'anthropic': bool(os.getenv('ANTHROPIC_API_KEY'))},
@@ -241,7 +307,7 @@ def create_app(data_dir=None, testing=False):
                        configured={'openai': bool(os.getenv('OPENAI_API_KEY')), 'anthropic': bool(os.getenv('ANTHROPIC_API_KEY')),
                                    'elevenlabs': bool(os.getenv('ELEVENLABS_API_KEY') and os.getenv('ELEVENLABS_VOICE_ID'))},
                        warnings=([caps.get('ffmpeg_error') or 'FFmpeg kurulumu gerekli.'] if not caps.get('ffmpeg') else [])
-                       + ([caps.get('tts_error') or 'Yerel ses motoru bulunamadı. Kurulum kılavuzuna bakın veya sessiz video seçin.'] if not caps.get('tts') else []))
+                       + ([caps.get('tts_error') or 'Yerel ses motoru bulunamadı. Hazır ses dosyası yükleyebilir veya sessiz video seçebilirsiniz.'] if not caps.get('tts') else []))
 
     @app.get('/api/activity')
     def activity():
@@ -289,7 +355,7 @@ def create_app(data_dir=None, testing=False):
         values = all_docs('project')
         search = request.args.get('search', '').strip().casefold()
         status = request.args.get('status', 'all')
-        if status not in {'all', 'draft', 'queued', 'rendering', 'ready', 'error', 'uploading', 'uploaded', 'translating'}:
+        if status not in {'all', 'draft', 'queued', 'rendering', 'ready', 'error', 'uploading', 'uploaded', 'translating', 'processing_audio'}:
             raise ValueError('Geçersiz proje durumu')
         if search:
             values = [p for p in values if search in ' '.join(str(p.get(key, '')) for key in ('title', 'script', 'source')).casefold()]
@@ -340,13 +406,126 @@ def create_app(data_dir=None, testing=False):
     def project_get(ident):
         return jsonify(public_project(project(ident)))
 
+    @app.get('/api/projects/<ident>/script')
+    def download_script(ident):
+        result = project(ident)
+        return Response(result['script'], content_type='text/plain; charset=utf-8', headers={
+            'Content-Disposition': f'attachment; filename="hype-script-{result["id"]}.txt"'})
+
+    @app.get('/api/projects/<ident>/audio/file')
+    def stream_audio(ident):
+        path = audio_file(project(ident))
+        if path is None:
+            from flask import abort
+            abort(404, description='Ses dosyası bulunamadı.')
+        return send_from_directory(path.parent, path.name, mimetype='audio/wav', conditional=True)
+
+    @app.post('/api/projects/<ident>/audio')
+    def upload_audio(ident):
+        with jobs_lock:
+            original = project(ident)
+            if is_busy(ident):
+                return jsonify(error='İşlem sürerken ses dosyası değiştirilemez.'), 409
+            if len(active) >= 3:
+                return jsonify(error='İşlem kuyruğu dolu. Bir işlemin bitmesini bekleyin.'), 429
+            active.add(ident)
+            put('project', {**original, 'status': 'processing_audio', 'error': None})
+        version = None
+        try:
+            uploaded = request.files.get('file')
+            if uploaded is None or not uploaded.filename:
+                raise ValueError('MP3 veya WAV ses dosyası seçin.')
+            filename = secure_filename(uploaded.filename.replace('\\', '/').split('/')[-1])
+            extension = Path(filename).suffix.lower()
+            if extension not in {'.mp3', '.wav'}:
+                raise ValueError('Yalnızca MP3 veya WAV dosyası yükleyin.')
+            base = data / 'audio' / ident
+            if (data / 'audio').is_symlink() or base.is_symlink():
+                raise ValueError('Ses dosyası dizini güvenli değil.')
+            base.mkdir(mode=0o700, exist_ok=True)
+            version = base / uuid.uuid4().hex
+            version.mkdir(mode=0o700)
+            raw = version / ('input' + extension)
+            size = 0
+            with raw.open('xb') as output:
+                while chunk := uploaded.stream.read(64 * 1024):
+                    size += len(chunk)
+                    if size > MAX_UPLOAD_BYTES:
+                        from flask import abort
+                        abort(413, description='Ses dosyası en fazla 25 MB olabilir.')
+                    output.write(chunk)
+            if not size:
+                raise ValueError('Ses dosyası boş olamaz.')
+            canonical = version / 'audio.wav'
+            duration = audio.normalize_audio(raw, canonical)
+            captions = audio.plan_captions(original['script'], canonical)
+            raw.unlink()
+            result = {**original, 'audio_path': str(canonical), 'updated': now(), 'audio': {
+                'filename': filename, 'duration': duration, 'uploaded_at': now(),
+                'script_hash': script_hash(original['script']), 'captions': captions, 'timing_mode': 'estimated'}}
+            invalidate_video(result)
+            with jobs_lock:
+                put('project', result)
+                active.discard(ident)
+        except Exception:
+            if version is not None:
+                shutil.rmtree(version, ignore_errors=True)
+            with jobs_lock:
+                put('project', original)
+                active.discard(ident)
+            raise
+        finally:
+            with jobs_lock:
+                active.discard(ident)
+        old = audio_file(original)
+        if old and old != canonical:
+            try:
+                remove_owned_directory(old.parent)
+            except OSError:
+                logging.warning('Previous audio asset could not be removed')
+        event(f'Ses dosyası eklendi: {result["title"]}', 'success')
+        return jsonify(public_project(result))
+
+    @app.delete('/api/projects/<ident>/audio')
+    def delete_audio(ident):
+        with jobs_lock:
+            result = project(ident)
+            if is_busy(ident):
+                return jsonify(error='İşlem sürerken ses dosyası silinemez.'), 409
+            remove_owned_directory(data / 'audio' / ident)
+            result.pop('audio', None)
+            result.pop('audio_path', None)
+            if result.get('render_options', {}).get('tts_provider') == 'uploaded':
+                invalidate_video(result)
+            result['updated'] = now()
+            put('project', result)
+        return jsonify(public_project(result))
+
+    @app.patch('/api/projects/<ident>/audio/timings')
+    def edit_audio_timings(ident):
+        fields = body()
+        with jobs_lock:
+            result = project(ident)
+            if is_busy(ident):
+                return jsonify(error='İşlem sürerken altyazı zamanları değiştirilemez.'), 409
+            if not valid_audio(result):
+                raise ValueError('Önce güncel senaryoya uygun ses dosyası yükleyin.')
+            duration = audio.inspect_audio(audio_file(result))['duration']
+            captions = audio.validate_captions(fields.get('captions'), result['script'], duration)
+            result['audio'] = {**result['audio'], 'captions': captions, 'timing_mode': 'manual', 'duration': duration}
+            if result.get('render_options', {}).get('tts_provider') == 'uploaded':
+                invalidate_video(result)
+            result['updated'] = now()
+            put('project', result)
+        return jsonify(public_project(result))
+
     @app.post('/api/projects/<ident>/translate')
     def translate_existing_project(ident):
         fields = body()
         provider = translation.provider_name(fields.get('provider', 'ollama'))
         with jobs_lock:
             original = project(ident)
-            if ident in active:
+            if is_busy(ident):
                 return jsonify(error='İşlem sürerken proje çevrilemez.'), 409
             if original.get('youtube_id'):
                 return jsonify(error='Yayımlanmış videoyu korumak için önce projeyi çoğaltın, ardından kopyayı Türkçeye çevirin.'), 409
@@ -379,7 +558,7 @@ def create_app(data_dir=None, testing=False):
         fields = validate(body(), partial=True)
         with jobs_lock:
             result = project(ident)
-            if ident in active:
+            if is_busy(ident):
                 return jsonify(error='İşlem sürerken taslak düzenlenemez.'), 409
             changed = any(result.get(key) != value for key, value in fields.items())
             changes_video = any(key in fields and result.get(key) != fields[key] for key in ('title', 'script'))
@@ -420,16 +599,13 @@ def create_app(data_dir=None, testing=False):
     def delete_project(ident):
         with jobs_lock:
             result = project(ident)
-            if ident in active:
+            if is_busy(ident):
                 return jsonify(error='İşlem sürerken proje silinemez.'), 409
             if not re.fullmatch(r'[a-f0-9]{32}', ident):
                 raise ValueError('Geçersiz proje kimliği')
-            target = data / 'renders' / ident
             # Never trust stored video_path for deletion and never follow a symlink.
-            if target.is_symlink():
-                target.unlink()
-            elif target.is_dir():
-                shutil.rmtree(target)
+            for kind in ('renders', 'audio'):
+                remove_owned_directory(data / kind / ident)
             with connection() as db:
                 db.execute("DELETE FROM documents WHERE kind='project' AND id=?", (ident,))
             event(f'Proje silindi: {result["title"]}')
@@ -445,7 +621,12 @@ def create_app(data_dir=None, testing=False):
                     result.update(progress=value, updated=now())
                     put('project', result)
                 target = data / 'renders' / ident / uuid.uuid4().hex[:12]
-                output = media.render(result, target, opts, progress)
+                render_input = dict(result)
+                if opts.get('tts_provider') == 'uploaded':
+                    render_input.update(audio_path=str(audio_file(result)),
+                                        audio_captions=result['audio']['captions'],
+                                        audio_timing_mode=result['audio']['timing_mode'])
+                output = media.render(render_input, target, opts, progress)
                 video = Path(output['video_path']).resolve()
                 subtitle = Path(output['subtitle_path']).resolve()
                 result.update({key: output[key] for key in ('provider', 'voice', 'speech', 'subtitle_timing', 'scene_count', 'design') if key in output})
@@ -459,7 +640,7 @@ def create_app(data_dir=None, testing=False):
                 event(f'Video hazır: {result["title"]}', 'success')
         except Exception as exc:
             result = get('project', ident)
-            message = str(exc) if isinstance(exc, (ValueError, media.MediaError)) else 'Video üretimi başarısız. FFmpeg ve yerel ses motorunu kontrol edin.'
+            message = str(exc) if isinstance(exc, (ValueError, media.MediaError, audio.AudioError)) else 'Video üretimi başarısız. FFmpeg ve ses dosyasını kontrol edin.'
             result.update(status='error', error=message[:500], updated=now())
             with jobs_lock:
                 put('project', result)
@@ -472,7 +653,7 @@ def create_app(data_dir=None, testing=False):
     @app.post('/api/projects/<ident>/render')
     def render_video(ident):
         opts = body()
-        if opts.get('style', 'aurora') not in {'aurora', 'sunset'} or opts.get('tts_provider', 'local') not in {'local', 'elevenlabs'} or not isinstance(opts.get('speech', True), bool):
+        if opts.get('style', 'aurora') not in {'aurora', 'sunset'} or opts.get('tts_provider', 'local') not in {'local', 'elevenlabs', 'uploaded'} or not isinstance(opts.get('speech', True), bool):
             raise ValueError('Geçersiz video ayarları')
         if 'speech_rate' in opts and (isinstance(opts['speech_rate'], bool) or not isinstance(opts['speech_rate'], int) or not 100 <= opts['speech_rate'] <= 240):
             raise ValueError('Konuşma hızı 100 ile 240 arasında olmalı.')
@@ -481,10 +662,17 @@ def create_app(data_dir=None, testing=False):
         opts = {key: opts[key] for key in ('style', 'tts_provider', 'speech', 'speech_rate', 'video_design') if key in opts}
         with jobs_lock:
             result = project(ident)
-            if ident in active:
+            if is_busy(ident):
                 return jsonify(error='Bu proje için işlem zaten sürüyor.'), 409
             if len(active) >= 3:
                 return jsonify(error='Üretim kuyruğu dolu. Bir işlemin bitmesini bekleyin.'), 429
+            if opts.get('tts_provider') == 'uploaded':
+                if not opts.get('speech', True):
+                    raise ValueError('Yüklenen ses için seslendirme açık olmalı.')
+                if not valid_audio(result):
+                    raise ValueError('Güncel senaryoyu seslendirip MP3 veya WAV olarak yükleyin. Metin değiştiyse yeni kayıt gerekli.')
+                duration = audio.inspect_audio(audio_file(result))['duration']
+                audio.validate_captions(result['audio'].get('captions'), result['script'], duration)
             active.add(ident)
             result.update(status='queued', progress=0, error=None)
             put('project', result)
@@ -565,7 +753,7 @@ def create_app(data_dir=None, testing=False):
             raise ValueError('Önce YouTube hesabınızı bağlayın.')
         with jobs_lock:
             result = project(ident)
-            if ident in active:
+            if is_busy(ident):
                 return jsonify(error='Bu proje için işlem sürüyor.'), 409
             if len(active) >= 3:
                 return jsonify(error='İşlem kuyruğu dolu. Bir işlemin bitmesini bekleyin.'), 429

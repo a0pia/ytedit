@@ -20,6 +20,8 @@ import unicodedata
 import wave
 from typing import Callable
 
+from .audio import AudioError, inspect_audio, normalize_audio, plan_captions, validate_captions
+
 
 class MediaError(RuntimeError):
     """A user-actionable production error."""
@@ -304,6 +306,25 @@ def _kinetic_plan(duration: float, spans: list[tuple[float, float, str]]) -> lis
     return scenes
 
 
+def _uploaded_kinetic_plan(duration: float, spans: list[tuple[float, float, str]]) -> list[dict]:
+    """Cut on recorded caption boundaries, including manually corrected timings."""
+    hook = min(2.6, duration * .45)
+    boundaries = [end for _start, end, _text in spans if hook <= end < duration - .08]
+    if boundaries:
+        hook = boundaries[0]
+    scenes = [{"start": 0.0, "end": hook, "layout": "hook", "phrase": ""}]
+    cursor = hook
+    while cursor < duration - .000001:
+        candidates = [end for _start, end, _text in spans if end >= cursor + 2.5 and end < duration - .08]
+        end = candidates[0] if candidates else duration
+        span = max(spans, key=lambda item: max(0, min(end, item[1]) - max(cursor, item[0])))
+        scenes.append({"start": cursor, "end": end,
+                       "layout": ("editorial", "card", "statement")[(len(scenes) - 1) % 3],
+                       "phrase": _source_phrase(span[2])})
+        cursor = end
+    return scenes
+
+
 def _ass_rgb(hexadecimal: str) -> str:
     return "&H" + hexadecimal[4:6] + hexadecimal[2:4] + hexadecimal[0:2] + "&"
 
@@ -580,8 +601,10 @@ def _render_work(project: dict, output_dir: Path, options: dict | None = None,
     if not isinstance(speech, bool):
         raise MediaError("Seslendirme seçeneği true veya false olmalı.")
     provider = options.get("tts_provider", "local")
-    if provider not in ("local", "elevenlabs"):
-        raise MediaError("Desteklenmeyen ses sağlayıcısı. local veya elevenlabs seçin.")
+    if provider not in ("local", "elevenlabs", "uploaded"):
+        raise MediaError("Desteklenmeyen ses sağlayıcısı. local, elevenlabs veya uploaded seçin.")
+    if provider == "uploaded" and not speech:
+        raise MediaError("Yüklenen sesle video üretirken seslendirme açık olmalı.")
     style = options.get("style", "aurora")
     if style not in ("aurora", "sunset"):
         raise MediaError("Desteklenmeyen video teması. aurora veya sunset seçin.")
@@ -603,30 +626,67 @@ def _render_work(project: dict, output_dir: Path, options: dict | None = None,
     spans = []
     cursor = 0.0
     audio_files = []
-    for index, sentence in enumerate(sentences):
-        if speech:
-            audio_path = _speak(sentence, output_dir, index, engine, provider, rate)
-            audio_files.append(audio_path)
-            with wave.open(str(audio_path), "rb") as audio:
-                duration = audio.getnframes() / audio.getframerate()
-        else:
-            duration = max(2.0, len(sentence.split()) / 2.6)
-        if not duration or cursor + duration > MAX_DURATION:
-            raise MediaError("Video 90 saniyeyi aşıyor. Senaryoyu kısaltıp yeniden deneyin.")
-        spans.append((cursor, cursor + duration, sentence))
-        chunks = _subtitle_chunks(sentence)
-        weight = sum(len(chunk) for chunk in chunks)
-        minimum = min(.65, duration / len(chunks) * .7)
-        remainder = duration - minimum * len(chunks)
-        chunk_cursor = cursor
-        for chunk_index, chunk in enumerate(chunks):
-            end = cursor + duration if chunk_index == len(chunks) - 1 else chunk_cursor + minimum + remainder * len(chunk) / weight
-            segments.append((chunk_cursor, end, chunk))
-            chunk_cursor = end
-        cursor += duration
-        report(10 + round(45 * (index + 1) / len(sentences)))
     narration_path = output_dir / "narration.wav"
-    if speech:
+    uploaded_timing = "audio_estimated"
+    if provider == "uploaded":
+        try:
+            source = project.get("audio_path")
+            if not isinstance(source, (str, Path)) or not str(source):
+                raise AudioError("Önce MP3 veya WAV ses kaydınızı yükleyin.")
+            metadata = inspect_audio(source)
+            cursor = metadata["duration"]
+            mode = project.get("audio_timing_mode", "estimated")
+            if mode not in ("manual", "estimated"):
+                raise AudioError("Geçersiz altyazı zamanlama modu.")
+            captions = project.get("audio_captions")
+            if captions is None:
+                if mode == "manual":
+                    raise AudioError("Elle zamanlama için altyazı bölümleri gerekli.")
+                captions = plan_captions(script, source)
+            captions = validate_captions(captions, script, cursor)
+            spans = [(item["start"], item["end"], item["text"]) for item in captions]
+            for start, end, text in spans:
+                chunks = _subtitle_chunks(text)
+                total_weight = sum(len(chunk) for chunk in chunks)
+                elapsed_weight = 0
+                chunk_start = start
+                for index, chunk in enumerate(chunks):
+                    elapsed_weight += len(chunk)
+                    chunk_end = end if index == len(chunks) - 1 else start + (end - start) * elapsed_weight / total_weight
+                    segments.append((chunk_start, chunk_end, chunk))
+                    chunk_start = chunk_end
+            if metadata["codec"] == "pcm_s16le" and metadata["channels"] == 1 and metadata["sample_rate"] == SAMPLE_RATE:
+                shutil.copyfile(source, narration_path)
+            else:
+                cursor = normalize_audio(source, narration_path)
+            uploaded_timing = "manual" if mode == "manual" else "audio_estimated"
+        except AudioError as exc:
+            raise MediaError(str(exc)) from exc
+        report(55)
+    else:
+        for index, sentence in enumerate(sentences):
+            if speech:
+                audio_path = _speak(sentence, output_dir, index, engine, provider, rate)
+                audio_files.append(audio_path)
+                with wave.open(str(audio_path), "rb") as audio:
+                    duration = audio.getnframes() / audio.getframerate()
+            else:
+                duration = max(2.0, len(sentence.split()) / 2.6)
+            if not duration or cursor + duration > MAX_DURATION:
+                raise MediaError("Video 90 saniyeyi aşıyor. Senaryoyu kısaltıp yeniden deneyin.")
+            spans.append((cursor, cursor + duration, sentence))
+            chunks = _subtitle_chunks(sentence)
+            weight = sum(len(chunk) for chunk in chunks)
+            minimum = min(.65, duration / len(chunks) * .7)
+            remainder = duration - minimum * len(chunks)
+            chunk_cursor = cursor
+            for chunk_index, chunk in enumerate(chunks):
+                end = cursor + duration if chunk_index == len(chunks) - 1 else chunk_cursor + minimum + remainder * len(chunk) / weight
+                segments.append((chunk_cursor, end, chunk))
+                chunk_cursor = end
+            cursor += duration
+            report(10 + round(45 * (index + 1) / len(sentences)))
+    if speech and provider != "uploaded":
         with wave.open(str(narration_path), "wb") as combined:
             combined.setnchannels(1)
             combined.setsampwidth(2)
@@ -634,13 +694,14 @@ def _render_work(project: dict, output_dir: Path, options: dict | None = None,
             for path in audio_files:
                 with wave.open(str(path), "rb") as audio:
                     combined.writeframes(audio.readframes(audio.getnframes()))
-    else:
+    elif not speech:
         with wave.open(str(narration_path), "wb") as combined:
             combined.setnchannels(1)
             combined.setsampwidth(2)
             combined.setframerate(SAMPLE_RATE)
             combined.writeframes(b"\0\0" * math.ceil(cursor * SAMPLE_RATE))
-    scenes = _kinetic_plan(cursor, spans) if design == "kinetic" else None
+    scenes = ((_uploaded_kinetic_plan(cursor, spans) if provider == "uploaded" else _kinetic_plan(cursor, spans))
+              if design == "kinetic" else None)
     subtitle_path, _ = _write_subtitles(output_dir, title, segments, cursor, scenes=scenes, style=style)
     if design == "classic":
         _background(output_dir / "background.ppm", style)
@@ -672,10 +733,10 @@ def _render_work(project: dict, output_dir: Path, options: dict | None = None,
     (output_dir / "background.ppm").unlink(missing_ok=True)
     report(98)
     return {"video_path": str(video_path), "subtitle_path": str(subtitle_path),
-            "duration": round(actual_duration, 2), "speech": speech,
-            "provider": ("ElevenLabs" if provider == "elevenlabs" else engine["provider"]) if speech else "Sessiz video",
-            "voice": engine["voice"] if speech and provider == "local" else "",
-            "subtitle_timing": "sentence_audio" if speech else "estimated",
+            "duration": cursor if provider == "uploaded" else round(actual_duration, 2), "speech": speech,
+            "provider": ("Yüklenen ses" if provider == "uploaded" else "ElevenLabs" if provider == "elevenlabs" else engine["provider"]) if speech else "Sessiz video",
+            "voice": "Harici kayıt" if provider == "uploaded" else engine["voice"] if speech and provider == "local" else "",
+            "subtitle_timing": uploaded_timing if provider == "uploaded" else "sentence_audio" if speech else "estimated",
             "design": design, "scene_count": len(scenes) if scenes else 1}
 
 

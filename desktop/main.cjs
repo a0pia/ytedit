@@ -76,7 +76,7 @@ function canonicalPath(value) {
 async function readStatus() {
   const status = await readJson('/api/status');
   if (status?.app !== 'hype-studio') throw serviceError(`${port} numaralı portu başka bir uygulama kullanıyor.`);
-  if (status.api_version !== 3) {
+  if (status.api_version !== 4) {
     throw serviceError(`${port} numaralı portta eski veya uyumsuz Hype Studio sunucusu çalışıyor. Açık sunucuyu durdurup uygulamayı yeniden başlatın.`);
   }
   const expectedDataDir = config.HYPE_DATA_DIR || path.join(app.getPath('userData'), 'data');
@@ -276,15 +276,15 @@ async function requestQuit() {
       try {
         const projects = await readJson('/api/projects', 8 * 1024 * 1024);
         if (!Array.isArray(projects.items)) throw new Error('Geçersiz proje listesi.');
-        busy = projects.items.filter((project) => ['queued', 'rendering', 'translating', 'uploading'].includes(project.status)).length;
+        busy = projects.items.filter((project) => ['queued', 'rendering', 'translating', 'uploading', 'processing_audio'].includes(project.status)).length;
       } catch {
         unavailable = true;
       }
       if (busy || unavailable) {
         const detail = unavailable
-          ? 'Devam eden işlem durumu alınamadı. Çıkarsanız uygulamanın başlattığı üretim, çeviri veya yükleme işlemleri durdurulur.'
+          ? 'Devam eden işlem durumu alınamadı. Çıkarsanız uygulamanın başlattığı üretim, çeviri, ses işleme veya yükleme işlemleri durdurulur.'
           : backend
-            ? `${busy} proje sırada veya işleniyor. Çıkarsanız video üretimi, Türkçe çeviri veya YouTube yüklemesi yarıda kalabilir.`
+            ? `${busy} proje sırada veya işleniyor. Çıkarsanız video üretimi, Türkçe çeviri, ses işleme veya YouTube yüklemesi yarıda kalabilir.`
             : `${busy} proje sırada veya işleniyor. Bu pencereyi kapattığınızda ayrı başlatılan sunucudaki işlemler devam eder.`;
         const options = {
           type: 'question',

@@ -261,11 +261,11 @@ class BrandTests(unittest.TestCase):
 
 
 class AndroidTests(unittest.TestCase):
-    def test_vega_android_has_visor_eyes_and_an_equalizer_mouth(self):
+    def test_vega_android_has_ski_goggles_eyes_and_an_equalizer_mouth(self):
         look = presenter.LOOKS["vega"]
         pose = {"gaze": (0, 0), "open": 1.0, "mouth": ("C", 22, 18), "brow": (.2, 4), "level": .9}
         names = [name for name, _c, _p in presenter.head_parts(look, "2EE6FF", pose)]
-        self.assertTrue({"head", "visor", "eyes", "brows", "mouth-eq", "ear-lights"} <= set(names))
+        self.assertTrue({"head", "goggle-strap", "goggle-frame", "goggle-lens", "eyes", "brows", "mouth-eq"} <= set(names))
         talking = next(path for name, _c, path in presenter.head_parts(look, "2EE6FF", pose) if name == "mouth-eq")
         self.assertEqual(talking.count("m "), 7)  # Seven equalizer bars while speaking.
         quiet = next(path for name, _c, path in presenter.head_parts(look, "2EE6FF", {**pose, "mouth": ("X", 0, 0)})

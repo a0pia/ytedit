@@ -495,6 +495,29 @@
                   placeholder="teknoloji, yapayzeka, shorts"
                 />
                 <div id="editor-source" class="source-reference"></div>
+                <div class="translation-tools">
+                  <div class="label-with-meta">
+                    <span class="field-label">İçerik dili</span>
+                    <span id="editor-language" class="language-tag">Kaynak dili</span>
+                  </div>
+                  <p class="field-help">Başlık, seslendirme, açıklama ve etiketleri Türkçeye çevir. Ses ve altyazılar bu metinden oluşturulur.</p>
+                  <label class="field-label" for="editor-translation-provider">Çeviri sağlayıcısı</label>
+                  <div class="translation-controls">
+                    <select class="text-input translation-provider" id="editor-translation-provider">
+                      <option value="ollama">Ollama · yerel / ücretsiz</option>
+                      <option value="openai">OpenAI API · ücretli olabilir</option>
+                      <option value="anthropic">Claude API · ücretli olabilir</option>
+                    </select>
+                    <button class="button button-outline" type="button" id="translate-project"><span data-icon="globe"></span>Metinleri Türkçeye çevir</button>
+                  </div>
+                  <p id="editor-translation-notice" class="field-help" hidden></p>
+                  <div id="editor-translation-help" class="translation-help"></div>
+                  <div id="editor-translation-error" class="inline-warning" role="alert" hidden></div>
+                  <details id="editor-original" class="original-comparison" hidden>
+                    <summary>Özgün metinle karşılaştır</summary>
+                    <div id="editor-original-content"></div>
+                  </details>
+                </div>
                 <div class="editor-bottom">
                   <span class="muted-text"
                     >Değişikliklerini render öncesi kaydet.</span
@@ -563,6 +586,12 @@
                       batımı</label
                     >
                   </div>
+                  <label class="field-label" for="video-design">Sahne tasarımı</label>
+                  <select class="text-input" id="video-design">
+                    <option value="kinetic">Animasyonlu sahneler</option>
+                    <option value="classic">Klasik</option>
+                  </select>
+                  <p class="field-help">Animasyonlu sahneler; hareketli başlıklar, metin geçişleri ve ilerleyen bir anlatım sunar.</p>
                   <label class="field-label" for="tts-provider"
                     >Seslendirme</label
                   ><select class="text-input" id="tts-provider">
@@ -591,6 +620,7 @@
                     <span data-icon="magic"></span>Videoyu oluştur
                   </button>
                   <div id="video-actions" class="video-actions" hidden>
+                    <p id="video-design-summary" class="field-help" hidden></p>
                     <a
                       id="download-video"
                       class="button button-outline full-width"
@@ -639,6 +669,7 @@
                 <option value="all">Tüm projeler</option>
                 <option value="draft">Taslak</option>
                 <option value="rendering">Hazırlanıyor</option>
+                <option value="translating">Çevriliyor</option>
                 <option value="ready">Yayına hazır</option>
                 <option value="error">Başarısız</option>
                 <option value="uploaded">YouTube'a yüklendi</option></select
@@ -666,7 +697,7 @@
                 ><span class="settings-tag">ÖNERİLEN</span>
                 <h2>Yerel üretim</h2>
                 <p>
-                  Şablon tabanlı Türkçe senaryo, yerel seslendirme, FFmpeg ile
+                  Girdi metninden senaryo şablonu, yerel seslendirme, FFmpeg ile
                   video ve altyazı. API anahtarı veya abonelik gerekmez.
                 </p>
                 <div class="status-list" id="local-status-list"></div>
@@ -690,6 +721,7 @@
                   Ollama ve seçtiğin modelin Mac'inde ayrıca kurulu olması
                   gerekir. Modelin donanım gereksinimlerini kontrol et.
                 </p>
+                <div id="settings-translation-help" class="translation-help"></div>
               </section>
               <section class="settings-card">
                 <span class="settings-card-icon settings-orange"
@@ -794,7 +826,13 @@
           placeholder="Videoda anlatmak istediğin bilgileri kendi cümlelerinle yaz…"
           required
         ></textarea
-        ><label class="field-label" for="new-url"
+        ><label class="field-label" for="new-language">Girdi dili</label>
+        <select id="new-language" class="text-input">
+          <option value="tr">Türkçe · metnim hazır</option>
+          <option value="original">Yabancı dil · kaynak dilini koru</option>
+        </select>
+        <button class="text-button manual-translation-button" type="button" id="translate-new-article"><span data-icon="globe"></span>Bu metni önce Türkçeye çevir</button>
+        <label class="field-label" for="new-url"
           >Kaynak bağlantısı <span>(isteğe bağlı)</span></label
         ><input
           id="new-url"
@@ -816,6 +854,40 @@
         >
           <span data-icon="sparkles"></span>Taslağımı oluştur
         </button>
+      </form>
+    </dialog>
+    <dialog id="translation-dialog" aria-labelledby="translation-dialog-title">
+      <form id="translation-form">
+        <div class="dialog-header">
+          <span class="eyebrow">KAYNAKTAN TÜRKÇE ANLATIMA</span>
+          <button type="button" class="icon-button" data-close-dialog aria-label="Pencereyi kapat"><span data-icon="x"></span></button>
+        </div>
+        <h2 id="translation-dialog-title">Türkçe video hazırla</h2>
+        <p>Haberi Türkçeye çevir, metni kontrol et ve video taslağını oluştur. Özgün kaynak korunur.</p>
+        <details class="original-comparison translation-source" open>
+          <summary>Özgün haber</summary>
+          <h3 id="translation-original-title"></h3>
+          <p id="translation-original-summary"></p>
+          <div id="translation-source-link"></div>
+        </details>
+        <label class="field-label" for="translation-provider">Çeviri sağlayıcısı</label>
+        <div class="translation-controls">
+          <select id="translation-provider" class="text-input translation-provider">
+            <option value="ollama">Ollama · yerel / ücretsiz</option>
+            <option value="openai">OpenAI API · ücretli olabilir</option>
+            <option value="anthropic">Claude API · ücretli olabilir</option>
+          </select>
+          <button type="button" id="translate-article" class="button button-outline"><span data-icon="globe"></span>Türkçeye çevir</button>
+        </div>
+        <div id="translation-setup" class="translation-help"></div>
+        <p id="translation-progress" class="translation-progress" role="status" hidden><span class="spinner"></span>Haber Türkçeye çevriliyor…</p>
+        <div id="translation-error" class="inline-warning" role="alert" hidden></div>
+        <label class="field-label" for="translation-title">Türkçe başlık</label>
+        <input id="translation-title" class="text-input" maxlength="300" required placeholder="Çeviri burada görünecek; düzenleyebilirsin." />
+        <label class="field-label" for="translation-summary">Türkçe özet</label>
+        <textarea id="translation-summary" class="text-input" rows="5" maxlength="2000" placeholder="Çevrilen özeti kaynakla karşılaştır."></textarea>
+        <p class="field-help">Bu Türkçe metin video yazılarının, seslendirmenin ve altyazıların temelidir. Model çıktısını kaynakla karşılaştır.</p>
+        <button type="submit" id="create-translated-project" class="button button-lime full-width" disabled><span data-icon="sparkles"></span>Türkçe video taslağı oluştur</button>
       </form>
     </dialog>
     <dialog id="upload-dialog">

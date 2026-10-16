@@ -68,6 +68,7 @@
     cached: false,
     pollInFlight: false,
     confirmResolver: null,
+    translatingProjectIds: new Set(),
   };
   const labels = {
     dashboard: "Genel bakış",
@@ -84,6 +85,7 @@
     error: "İşlem başarısız",
     uploaded: "YouTube’a yüklendi",
     uploading: "Yükleniyor",
+    translating: "Türkçeye çevriliyor",
   };
 
   function el(tag, className, text) {
@@ -275,7 +277,8 @@
     return accepted;
   }
   function activeProject(project) {
-    return ["queued", "rendering", "uploading"].includes(project?.status);
+    return ["queued", "rendering", "uploading", "translating"].includes(project?.status) ||
+      state.translatingProjectIds.has(project?.id);
   }
   function markDirty() {
     $("#dirty-indicator").textContent = state.dirty
@@ -300,13 +303,7 @@
     return tile;
   }
   function openNewsDraft(item) {
-    showNewProject({
-      title: item.title,
-      summary: item.summary || "",
-      url: item.url,
-      source: item.source,
-      news_id: item.id,
-    });
+    showTranslation(item);
   }
   function renderDashboardNews() {
     const list = $("#dashboard-news");
@@ -332,10 +329,10 @@
       body.append(newsMeta(item), el("h3", "", item.title));
       const button = el("button", "icon-button");
       button.type = "button";
-      button.title = "Bu haberden video oluştur";
+      button.title = "Türkçe video hazırla";
       button.setAttribute(
         "aria-label",
-        item.title + " haberinden video oluştur",
+        item.title + " haberinden Türkçe video hazırla",
       );
       button.append(icon("arrow-up-right"));
       button.addEventListener("click", () => openNewsDraft(item));
@@ -398,8 +395,10 @@
       const footer = el("div", "news-card-footer");
       const link = sourceLink(item.url, "Kaynağı oku", "text-button");
       link.append(icon("arrow-up-right"));
-      const button = el("button", "button button-outline", "Videoya dönüştür");
-      button.append(icon("plus"));
+      const button = el("button", "button button-outline", "Türkçe video hazırla");
+      button.type = "button";
+      button.dataset.action = "translate-news";
+      button.append(icon("globe"));
       button.addEventListener("click", () => openNewsDraft(item));
       footer.append(link, button);
       card.append(
@@ -440,7 +439,7 @@
         (filter === "uploaded"
           ? !!project.youtube_url
           : filter === "rendering"
-            ? ["queued", "rendering", "uploading"].includes(project.status)
+            ? activeProject(project)
             : filter === "ready"
               ? project.status === "ready" && !project.youtube_url
               : project.status === filter);
@@ -629,6 +628,45 @@
     elevenOption.textContent = elevenOption.disabled
       ? "ElevenLabs · yapılandırılmamış"
       : "ElevenLabs · kota/ücret olabilir";
+    renderTranslationHelp();
+  }
+  function renderTranslationHelp() {
+    const translation = state.status?.translation;
+    const providers = translation?.providers;
+    $$(".translation-provider").forEach((select) => {
+      ["openai", "anthropic"].forEach((provider) => {
+        const option = $('option[value="' + provider + '"]', select);
+        option.disabled = !!providers && !providers[provider];
+        option.textContent =
+          (provider === "openai" ? "OpenAI API" : "Claude API") +
+          (option.disabled ? " · API anahtarı gerekli" : " · ücretli olabilir");
+      });
+    });
+    ["#translation-setup", "#editor-translation-help", "#settings-translation-help"].forEach((id) => {
+      const target = $(id);
+      const select = id === "#translation-setup" ? $("#translation-provider") :
+        id === "#editor-translation-help" ? $("#editor-translation-provider") : null;
+      target.replaceChildren();
+      if (select && select.value !== "ollama") {
+        target.append(el("p", "field-help", "Seçtiğin API sağlayıcısı ayrıca ücretlendirebilir. ChatGPT / Claude abonelikleri API kullanımını kapsamaz."));
+        return;
+      }
+      const ready = providers?.ollama;
+      target.append(el("p", "field-help", ready
+        ? "Ollama modeli hazır · " + (translation.model || "yerel model") + ". Çeviri cihazında çalışır."
+        : ready === false
+          ? "Ollama modeli hazır değil. Ücretsiz çeviri için Mac'inde Ollama'yı ve modeli kur, ardından stüdyoyu yenile."
+          : "Ücretsiz çeviri için yerel Ollama ve bir model gerekir. Sağlayıcı durumu henüz doğrulanmadı."));
+      const guide = el("details", "translation-install");
+      guide.append(el("summary", "", "Ücretsiz yerel çeviri kurulumu"));
+      const commands = translation?.setup_commands || ["brew install ollama", "brew services start ollama", "ollama pull llama3.2:3b"];
+      const code = el("code", "", commands.join("\n"));
+      const pre = el("pre");
+      pre.append(code);
+      guide.append(el("p", "field-help", "Mac Terminal'de sırayla çalıştır (Homebrew gerekli). İlk model indirmesi internet ve boş disk alanı gerektirir."), pre,
+        el("p", "field-help", "Model indirildikten sonra üstteki yenile düğmesine bas. Ücretli bir sağlayıcıya otomatik geçilmez."));
+      target.append(guide);
+    });
   }
   async function loadStatus() {
     state.status = await api("/api/status");
@@ -718,7 +756,9 @@
       );
       if (latest) {
         state.selected = latest;
-        updatePreview(latest);
+        if (previous.get(latest.id)?.status === "translating" && latest.status !== "translating" &&
+            !state.dirty && !state.translatingProjectIds.has(latest.id)) fillEditor(latest);
+        else updatePreview(latest);
       }
     }
     renderStats();
@@ -727,7 +767,10 @@
   }
   function notifyTransition(previous, project) {
     if (!previous || !activeProject(previous) || activeProject(project)) return;
-    if (previous.status === "uploading")
+    if (previous.status === "translating") {
+      if (!state.translatingProjectIds.has(project.id) && project.language === "tr")
+        toast("Türkçe metinler hazır. Videoyu yeniden oluştur: " + project.title);
+    } else if (previous.status === "uploading")
       toast(
         project.youtube_url && !project.error
           ? "YouTube yüklemesi tamamlandı: " + project.title
@@ -737,7 +780,14 @@
       );
     else if (project.error || project.status === "error")
       toast(project.error || "Video oluşturulamadı: " + project.title, true);
-    else if (project.status === "ready") toast("Video hazır: " + project.title);
+    else if (project.status === "ready") {
+      toast("Video hazır: " + project.title);
+      if (state.view === "studio" && state.selected?.id === project.id && !state.dirty) {
+        requestAnimationFrame(() => $("#preview-phone").scrollIntoView({
+          block: "nearest", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth",
+        }));
+      }
+    }
   }
 
   async function loadActivity() {
@@ -779,6 +829,98 @@
     dialog.showModal();
     setTimeout(() => $("#new-title").focus(), 50);
   }
+  async function showTranslation(article) {
+    if (!(await canDiscard())) return;
+    const dialog = $("#translation-dialog");
+    $("#translation-form").reset();
+    dialog._article = { ...article };
+    dialog._translation = null;
+    $("#translation-original-title").textContent = article.title || "";
+    $("#translation-original-summary").textContent = article.summary || "Ayrı bir özet bulunmuyor.";
+    const source = $("#translation-source-link");
+    source.replaceChildren();
+    if (article.url) source.append(sourceLink(article.url, article.source || "Kaynağı oku", "text-button"));
+    clearError("#translation-error");
+    setArticleTranslationBusy(false);
+    renderTranslationHelp();
+    $("#new-project-dialog").close();
+    dialog.showModal();
+    $("#translate-article").focus();
+  }
+  function setArticleTranslationBusy(running, creating = false) {
+    const dialog = $("#translation-dialog");
+    if (running) dialog.setAttribute("aria-busy", "true");
+    else dialog.removeAttribute("aria-busy");
+    $$("input, textarea, select, button", dialog).forEach((control) => {
+      control.disabled = running;
+    });
+    $("#create-translated-project").disabled = running || !dialog._translation;
+    $("#translation-progress").hidden = !running;
+    $("#translation-progress").replaceChildren(icon("globe"), document.createTextNode(
+      creating ? "Türkçe video taslağı oluşturuluyor…" : "Haber Türkçeye çevriliyor…",
+    ));
+  }
+  async function translateArticle() {
+    const dialog = $("#translation-dialog");
+    if (dialog.getAttribute("aria-busy") === "true") return;
+    const article = dialog._article;
+    if (!article) return;
+    clearError("#translation-error");
+    const provider = $("#translation-provider").value;
+    const payload = article.id ? { news_id: article.id, provider } : {
+      title: article.title, summary: article.summary || "", url: article.url || "",
+      source: article.source || "Manuel", provider,
+    };
+    setArticleTranslationBusy(true);
+    try {
+      const translated = await api("/api/translate", { method: "POST", body: JSON.stringify(payload) });
+      dialog._translation = translated;
+      $("#translation-title").value = translated.title || "";
+      $("#translation-summary").value = translated.summary || "";
+      $("#translation-title").focus();
+    } catch (error) {
+      showError("#translation-error", error.message);
+    } finally {
+      setArticleTranslationBusy(false);
+    }
+  }
+  async function createTranslatedProject(event) {
+    event.preventDefault();
+    const dialog = $("#translation-dialog");
+    if (!dialog._translation || dialog.getAttribute("aria-busy") === "true") return;
+    clearError("#translation-error");
+    const translated = dialog._translation;
+    const payload = {
+      title: $("#translation-title").value.trim(), summary: $("#translation-summary").value.trim(),
+      url: translated.source_url || "", source: translated.source || "Manuel",
+      mode: "template", language: "tr", translation: { ...translated },
+    };
+    if (!payload.title) return showError("#translation-error", "Türkçe başlığı yaz.");
+    setArticleTranslationBusy(true, true);
+    try {
+      const project = projectFromResponse(await api("/api/projects", {
+        method: "POST", body: JSON.stringify(payload),
+      }));
+      updateProject(project);
+      dialog.close();
+      await openProject(project.id);
+      toast("Türkçe taslak hazır. Seslendirme ve altyazılar bu metinden üretilecek.");
+      loadActivity().catch(() => {});
+    } catch (error) {
+      showError("#translation-error", error.message);
+    } finally {
+      setArticleTranslationBusy(false);
+    }
+  }
+  async function translateNewArticle() {
+    clearError("#new-project-error");
+    const title = $("#new-title").value.trim();
+    if (!title) return showError("#new-project-error", "Önce çevirmek istediğin başlığı ve varsa özeti yaz.");
+    if (!$("#new-url").checkValidity()) return $("#new-url").reportValidity();
+    const source = $("#new-project-dialog")._draftSource || {};
+    await showTranslation({ title, summary: $("#new-summary").value.trim(),
+      url: $("#new-url").value.trim(), source: source.source || "Manuel" });
+  }
   function projectFromResponse(data) {
     return data.project || data;
   }
@@ -792,6 +934,7 @@
       url: $("#new-url").value.trim(),
       source: source.source || "Kendi fikrim",
       mode: $("#new-mode").value,
+      language: $("#new-language").value,
     };
     if (!payload.title || !payload.summary)
       return showError(
@@ -849,10 +992,16 @@
     if (subtitle) $("#download-subtitles").href = subtitle;
     const running = activeProject(project);
     $$(
-      "#editor-form input, #editor-form textarea, #editor-form button, .render-settings select, .theme-picker input",
+      "#editor-form input, #editor-form textarea, #editor-form select, #editor-form button, .render-settings select, .theme-picker input",
     ).forEach((control) => {
       control.disabled = running;
     });
+    const published = !!(project.youtube_id || project.youtube_url);
+    $("#translate-project").disabled = running || published;
+    $("#editor-translation-notice").hidden = !published;
+    $("#editor-translation-notice").textContent = published
+      ? "Yayımlanmış videoyu korumak için Videolarım'da projeyi çoğalt, ardından kopyayı Türkçeye çevir."
+      : "";
     $("#render-project").disabled = running;
     $("#render-progress").hidden = !running;
     $("#render-progress-text").textContent =
@@ -860,7 +1009,9 @@
         ? "Üretim sırasında bekliyor…"
         : project.status === "uploading"
           ? "YouTube’a yükleniyor…"
-          : "Video hazırlanıyor…";
+          : project.status === "translating" || state.translatingProjectIds.has(project.id)
+            ? "Metinler Türkçeye çevriliyor…"
+            : "Video hazırlanıyor…";
     const progress = Math.max(0, Math.min(100, Number(project.progress) || 0));
     const knownProgress =
       project.status === "rendering" &&
@@ -876,7 +1027,14 @@
       running && !knownProgress,
     );
     $("#editor-status").textContent =
-      statusLabels[project.status] || project.status || "Taslak";
+      state.translatingProjectIds.has(project.id) ? statusLabels.translating :
+        statusLabels[project.status] || project.status || "Taslak";
+    const designSummary = $("#video-design-summary");
+    const design = project.design || project.render_options?.video_design;
+    designSummary.hidden = !hasVideo || !design;
+    designSummary.textContent = (design === "classic" ? "Klasik tasarım" : "Animasyonlu sahneler") +
+      (Number.isFinite(Number(project.scene_count)) && Number(project.scene_count) > 0
+        ? " · " + Number(project.scene_count) + " sahne" : "");
     $("#upload-project").disabled = running || !!project.youtube_url;
     if (project.youtube_url) {
       $("#upload-project").replaceChildren(
@@ -940,6 +1098,22 @@
       const note = el("p", "editorial-note", project.editorial_note);
       source.append(note);
     }
+    $("#editor-language").textContent = project.language === "tr" ? "Türkçe" : "Kaynak dili";
+    const original = $("#editor-original-content");
+    original.replaceChildren();
+    const translation = project.translation || {};
+    [
+      ["original_title", "Başlık"], ["original_summary", "Haber özeti"],
+      ["original_script", "Seslendirme metni"], ["original_description", "Açıklama"], ["original_tags", "Etiketler"],
+    ].forEach(([key, label]) => {
+      const value = translation[key];
+      if (Array.isArray(value) ? value.length : typeof value === "string" && value) {
+        original.append(el("strong", "", label), el("p", "", Array.isArray(value) ? value.join(", ") : value));
+      }
+    });
+    $("#editor-original").hidden = !original.childElementCount;
+    $("#video-design").value = project.render_options?.video_design || project.design || "kinetic";
+    clearError("#editor-translation-error");
     state.dirty = false;
     markDirty();
     countWords();
@@ -958,7 +1132,7 @@
       try {
         localStorage.setItem("hype-selected-project", id);
       } catch {}
-      if (["rendering", "queued", "uploading"].includes(project.status))
+      if (activeProject(project))
         startPolling();
     } catch (error) {
       toast(error.message, true);
@@ -1009,6 +1183,57 @@
       }
     });
   }
+  async function translateCurrentProject() {
+    if (!state.selected || activeProject(state.selected)) return;
+    const accepted = await askConfirmation(
+      "Video metinleri Türkçeye çevrilsin mi?",
+      (state.dirty ? "Düzenlemelerin önce kaydedilecek. " : "") +
+        "Başlık, seslendirme, açıklama ve etiketler Türkçe çeviriyle değiştirilecek. Özgün metinler karşılaştırma için saklanır. Hazır video varsa yeni metinlerle yeniden oluşturman gerekir.",
+      state.dirty ? "Kaydet ve Türkçeye çevir" : "Türkçeye çevir",
+    );
+    if (!accepted) return;
+    if (!state.selected || activeProject(state.selected)) return;
+    clearError("#editor-translation-error");
+    let original;
+    try {
+      original = await saveCurrent(false);
+    } catch (error) {
+      showError("#editor-translation-error", error.message);
+      return;
+    }
+    const id = original.id;
+    const provider = $("#editor-translation-provider").value;
+    state.translatingProjectIds.add(id);
+    updatePreview(original);
+    renderProjects();
+    startPolling();
+    try {
+      const project = projectFromResponse(await api("/api/projects/" + encodeURIComponent(id) + "/translate", {
+        method: "POST", body: JSON.stringify({ provider }),
+      }));
+      state.translatingProjectIds.delete(id);
+      updateProject(project);
+      if (state.selected?.id === id) {
+        state.selected = project;
+        fillEditor(project);
+      }
+      toast("Metinler Türkçeye çevrildi. Türkçe ses ve altyazılar için videoyu yeniden oluştur.");
+      loadActivity().catch(() => {});
+    } catch (error) {
+      let restored = original;
+      try { restored = projectFromResponse(await api("/api/projects/" + encodeURIComponent(id))); } catch {}
+      state.translatingProjectIds.delete(id);
+      updateProject(restored);
+      if (state.selected?.id === id) {
+        state.selected = restored;
+        fillEditor(restored);
+        showError("#editor-translation-error", error.message);
+      } else toast(error.message, true);
+    } finally {
+      state.translatingProjectIds.delete(id);
+      if (state.selected?.id === id) updatePreview(state.selected);
+    }
+  }
   async function renderProject() {
     if (!state.selected) return;
     if (state.status && !state.status.ffmpeg)
@@ -1023,6 +1248,7 @@
         const options = {
           voice: "tr",
           style: $('input[name="render-style"]:checked').value,
+          video_design: $("#video-design").value,
           speech: provider !== "none",
           tts_provider: provider === "elevenlabs" ? "elevenlabs" : "local",
         };
@@ -1224,11 +1450,17 @@
       button.addEventListener("click", () => showNewProject()),
     );
     $$("[data-close-dialog]").forEach((button) =>
-      button.addEventListener("click", () => button.closest("dialog").close()),
+      button.addEventListener("click", () => {
+        const dialog = button.closest("dialog");
+        if (dialog.getAttribute("aria-busy") !== "true") dialog.close();
+      }),
     );
-    $$("dialog").forEach((dialog) =>
+    $$("dialog").forEach((dialog) => {
+      dialog.addEventListener("cancel", (event) => {
+        if (dialog.getAttribute("aria-busy") === "true") event.preventDefault();
+      });
       dialog.addEventListener("click", (event) => {
-        if (event.target === dialog) {
+        if (event.target === dialog && dialog.getAttribute("aria-busy") !== "true") {
           const rect = dialog.getBoundingClientRect();
           if (
             event.clientX < rect.left ||
@@ -1238,8 +1470,8 @@
           )
             dialog.close();
         }
-      }),
-    );
+      });
+    });
     $("#refresh-all").addEventListener("click", refreshAll);
     $("#refresh-news").addEventListener("click", () =>
       busy($("#refresh-news"), async () => {
@@ -1255,8 +1487,14 @@
       }),
     );
     $("#new-project-form").addEventListener("submit", createProject);
+    $("#translate-new-article").addEventListener("click", translateNewArticle);
+    $("#translate-article").addEventListener("click", translateArticle);
+    $("#translation-form").addEventListener("submit", createTranslatedProject);
+    $("#translate-project").addEventListener("click", translateCurrentProject);
+    $$(".translation-provider").forEach((select) => select.addEventListener("change", renderTranslationHelp));
     $("#editor-form").addEventListener("submit", saveProject);
-    $("#editor-form").addEventListener("input", () => {
+    $("#editor-form").addEventListener("input", (event) => {
+      if (!["edit-title", "edit-script", "edit-description", "edit-tags"].includes(event.target.id)) return;
       state.dirty = true;
       markDirty();
       countWords();
@@ -1344,7 +1582,7 @@
         (project) => project.id === selectedId,
       );
       fillEditor(state.selected);
-      if (["rendering", "queued", "uploading"].includes(state.selected.status))
+      if (activeProject(state.selected))
         startPolling();
     }
   }

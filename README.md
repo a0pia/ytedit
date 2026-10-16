@@ -107,7 +107,7 @@ Video oluşturma zaman alabilir; uygulamayı işlem bitene kadar açık tutun. A
 
 İsteğe bağlı gerçek tarayıcı kontrolü için önce sunucuyu başlatın; ayrı bir geliştirme ortamına `playwright==1.55.0` kurup `CHROMIUM_PATH` ile Chromium çalıştırılabilir dosyasını belirtin. `.venv/bin/python tests/ui_smoke.py` manuel taslak oluşturur, ücretsiz sesli video üretir, videonun 720×1280 olarak çözüldüğünü, SRT'yi ve yükleme onayını kontrol eder. Gerçek YouTube yüklemesi yapmaz. Başarılı çıktılar `artifacts/` altına ekran görüntüsü olarak kaydedilir.
 
-Bu geliştirme ortamında 137 Python testi ve 7 masaüstü yaşam döngüsü testi geçti. Gerçek tarayıcıda ücretsiz sesli video üretimi, metadata düzenleme, taslak koruması, proje arama/çoğaltma/dışa aktarma/silme ve 15 ekran/boyut kombinasyonu doğrulandı. Canlı RSS erişimi bulut proxy politikası nedeniyle engellendi; Google hesabı verilmediğinden gerçek YouTube yüklemesi ve API anahtarı gerektiren servisler çalıştırılmadı. Mac masaüstü başlatıcısının sözdizimi kontrol edildi; macOS üzerinde çalışma testi henüz yapılmadı.
+Bu geliştirme ortamında 176 Python testi ve 8 masaüstü yaşam döngüsü testi geçti. Gerçek tarayıcıda ücretsiz sesli video üretimi, metadata düzenleme, taslak koruması, proje arama/çoğaltma/dışa aktarma/silme ve 15 ekran/boyut kombinasyonu doğrulandı. Canlı RSS erişimi bulut proxy politikası nedeniyle engellendi; Google hesabı verilmediğinden gerçek YouTube yüklemesi ve API anahtarı gerektiren servisler çalıştırılmadı. Mac masaüstü başlatıcısının sözdizimi kontrol edildi; macOS üzerinde çalışma testi henüz yapılmadı.
 
 ## 0.2 sürümündeki iyileştirmeler
 
@@ -120,3 +120,31 @@ Bu geliştirme ortamında 137 Python testi ve 7 masaüstü yaşam döngüsü tes
 - Sonucu belirsiz YouTube yüklemesi için kanalı kontrol ettiğinize dair ayrı tekrar deneme onayı. Aynı hesabın eşzamanlı yüklemeleri erişim belirtecini güvenli biçimde paylaşır.
 
 Mevcut kurulumunuzu güncellemek için uygulamayı kapatın, proje klasöründe `git pull origin main` ve `./scripts/setup.sh` çalıştırıp `npm start` ile yeniden açın. Eski yerel sunucu arka planda açıksa önce onu durdurun. Yerel `.env`, projeler ve videolar korunur.
+
+## Türkçe haber ve video çevirisi
+
+Yabancı bir haberden video üretirken **Türkçe video hazırla** akışını kullanın. Orijinal başlık/özet ile Türkçe karşılığı birlikte gösterilir. Çeviriyi düzenleyip Türkçe taslak oluşturduğunuzda seslendirme ve altyazı aynı Türkçe metinden üretilir. Kaynak bağlantısı korunur. Mevcut bir videonun editöründeki **Metinleri Türkçeye çevir** işlemi başlık, senaryo, açıklama ve etiketleri birlikte çevirir; başarılı çeviriden sonra videoyu yeniden üretin. Başarısız çeviri mevcut metni veya videoyu silmez. YouTube’a daha önce yüklenmiş bir projeyi çevirmek için önce çoğaltın; yayımlanan sürüm korunur.
+
+Ücretsiz çeviri için Mac'te Ollama ve model gerekir. Homebrew kuruluysa:
+
+```bash
+brew install ollama
+brew services start ollama
+ollama pull llama3.2:3b
+```
+
+Alternatif olarak Ollama'nın resmi Mac uygulamasını kurup çalıştırabilir, ardından modeli indirebilirsiniz. Model ilk indirmede birkaç GB disk ve internet kullanır; sonraki yerel çeviriler API ücreti gerektirmez. Panelde bağlantıları yenileyin. Farklı model için `.env` içinde `OLLAMA_MODEL` ayarlayıp Hype Studio'yu yeniden başlatın.
+
+Şablon modu tek başına çeviri yapmaz. Ollama erişilemiyorsa uygulama bunu gösterir; ücretli sağlayıcıya kendiliğinden geçmez. OpenAI/Anthropic API'leri yalnızca sizin açık seçiminiz ve API anahtarınızla kullanılabilir. Çeviri bir taslaktır; rakamları, özel adları ve iddiaları orijinal haberle karşılaştırın. RSS erişimi haber metninin yeniden yayım hakkını otomatik sağlamaz.
+
+## Animasyonlu kısa videolar
+
+Varsayılan **Animasyonlu sahneler** tasarımı, ilk saniyelerde hareketli büyük bir giriş başlığıyla başlar. Ardından senaryodan alınan cümleler farklı renklerde, değişen yerleşimlerde ve hareketli grafiklerle gösterilir. Altyazılar seslendirmeye göre zamanlanır. Vurgu kartları senaryodaki ifadeleri kullanır; rastgele rakam veya haber iddiası üretilmez. İsterseniz **Klasik** tasarımı seçebilirsiniz.
+
+Bütün grafikler uygulama içinde üretilir. Bu özellik ücretli stok video, müzik veya görsel API'si kullanmaz; şimdilik dış video kliplerinin otomatik montajı değildir.
+
+![Animasyonlu videodan farklı sahneler](docs/animated-scenes.png)
+
+[Gerçek animasyonlu örnek MP4](docs/animated-example.mp4)
+
+`tests/translation_ui_smoke.py`, ayrı bir yerel ve belirli yanıt veren model taklidiyle gerçek HTTP çeviri bağlantısını ve arayüzü doğrular. Bu, gerçek bir dil modelinin çeviri kalitesi testi değildir. Bulut makinesinde Ollama model indirme adresleri proxy403 ile engellendiği için gerçek model çalıştırılmadı; gerçek animasyonlu video ve Türkçe yerel seslendirme ise FFmpeg ile üretildi.

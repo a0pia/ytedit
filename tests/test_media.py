@@ -8,9 +8,9 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from app.media import (MediaError, _ass_escape, _ffmpeg_probe, _glyph_width,
-                       _local_engine, _sentences, _subtitle_chunks, _title_layout,
-                       capabilities, render)
+from app.media import (MediaError, _ass_escape, _ffmpeg_probe, _fit_display, _glyph_width,
+                       _kinetic_events, _kinetic_plan, _local_engine, _sentences,
+                       _source_phrase, _subtitle_chunks, _title_layout, capabilities, render)
 
 
 @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "FFmpeg is required")
@@ -38,6 +38,8 @@ class RenderTests(unittest.TestCase):
         self.assertGreater(float(media["format"]["duration"]), 1.9)
         self.assertIn("Teknolojide yeni bir gün!", " ".join(Path(result["subtitle_path"]).read_text().split()))
         self.assertEqual(result["subtitle_timing"], "estimated")
+        self.assertEqual(result["design"], "kinetic")
+        self.assertGreaterEqual(result["scene_count"], 2)
         self.assertEqual(progress[-1], 100)
         self.assertEqual(progress, sorted(progress))
         self.assertTrue(any(65 < value < 98 for value in progress))
@@ -115,6 +117,44 @@ class RenderTests(unittest.TestCase):
                 render({"script": "Türkçe konuşuyoruz."}, self.output)
         self.assertEqual(list(self.output.iterdir()), [])
 
+    def test_classic_design_remains_an_explicit_real_export_option(self):
+        result = render({"title": "Klasik tasarım", "script": "Merhaba teknoloji."}, self.output,
+                        {"speech": False, "video_design": "classic"})
+        self.assertEqual(result["design"], "classic")
+        self.assertEqual(result["scene_count"], 1)
+        self.assertNotIn("HYPE / TEKNOLOJİ", (self.output / "captions.ass").read_text())
+        self.assertTrue(Path(result["video_path"]).is_file())
+
+    def test_kinetic_export_changes_layouts_and_has_motion_between_cuts(self):
+        script = ("Yerel yapay zekâ modelleri bilgisayarda farklı kullanım seçenekleri sunuyor. "
+                  "İnternet gereksinimleri kullanılan modele göre değişebiliyor. "
+                  "Donanım gereksinimlerini ve model lisanslarını kullanmadan önce kontrol etmek gerekiyor. "
+                  "Bu örnekte teknoloji konusunu birlikte inceliyoruz.")
+        with patch("urllib.request.urlopen", side_effect=AssertionError("Motion design must be entirely offline")):
+            result = render({"title": "Yerel yapay zekâ neden konuşuluyor?", "script": script}, self.output,
+                            {"speech": False})
+        self.assertGreater(result["duration"], 10)
+        self.assertGreaterEqual(result["scene_count"], 4)
+
+        def frame(timestamp):
+            response = subprocess.run(["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error",
+                                       "-ss", str(timestamp), "-i", result["video_path"], "-frames:v", "1",
+                                       "-vf", "crop=720:820:0:0,scale=72:82", "-f", "rawvideo", "-pix_fmt", "rgb24", "pipe:1"],
+                                      capture_output=True, check=True, timeout=20)
+            self.assertEqual(len(response.stdout), 72 * 82 * 3)
+            return response.stdout
+
+        frames = [frame(timestamp) for timestamp in (.4, 3.4, 6.4, 9.4)]
+        differences = [sum(abs(a - b) for a, b in zip(first, second)) / len(first)
+                       for first, second in zip(frames, frames[1:])]
+        self.assertTrue(all(difference > 12 for difference in differences), differences)
+        # Compare within one scene as well: transitions alone would be a slideshow.
+        first, second = frame(3.4), frame(4.1)
+        changed = sum(sum(abs(first[i + c] - second[i + c]) for c in range(3)) > 30
+                      for i in range(0, len(first), 3)) / (72 * 82)
+        self.assertGreater(changed, .025)
+        self.assertIn(r"\move(", (self.output / "captions.ass").read_text())
+
 
 class SubtitleTests(unittest.TestCase):
     def test_long_words_wrap_and_ass_control_sequences_are_neutralized(self):
@@ -141,6 +181,29 @@ class SubtitleTests(unittest.TestCase):
         self.assertLessEqual(len(layout.splitlines()), 4)
         self.assertTrue(layout.endswith("…"))
         self.assertTrue(all(sum(map(_glyph_width, line)) <= 570 / size for line in layout.splitlines()))
+
+    def test_motion_cards_use_verbatim_phrases_and_preserve_statistic_context(self):
+        source = "Model %30 daha hızlı değil; bu yalnızca test için verilen bir örnektir."
+        phrase = _source_phrase(source)
+        self.assertEqual(phrase, source)
+        _, fitted = _fit_display(phrase, sizes=(64, 58, 52, 46, 40, 34), width=500, lines=6, height=280)
+        self.assertEqual(" ".join(fitted.split()), source)
+        scenes = _kinetic_plan(12, [(0, 6, source), (6, 12, "İkinci cümlede gerçek bir sayı bulunmuyor.")])
+        self.assertTrue(all(scene["phrase"] in source + " İkinci cümlede gerçek bir sayı bulunmuyor."
+                            for scene in scenes[1:]))
+        self.assertEqual(scenes[0]["layout"], "hook")
+        self.assertEqual(scenes[-1]["end"], 12)
+
+    def test_motion_user_text_cannot_inject_ass_font_or_position_instructions(self):
+        title = r"Teknoloji {\fnUntrustedFont} başlığı"
+        caption = r"Gerçek metin {\pos(99,99)} devam ediyor."
+        scenes = _kinetic_plan(4, [(0, 4, caption)])
+        content = "\n".join(_kinetic_events(title, [(0, 4, caption)], scenes, 4, "aurora"))
+        self.assertNotIn(r"{\fnUntrustedFont}", content)
+        self.assertNotIn(r"{\pos(99,99)}", content)
+        visible_fragments = "".join(line.rsplit("}", 1)[-1].replace(r"\N", "") for line in content.splitlines())
+        self.assertIn("UntrustedFont", visible_fragments)
+        self.assertIn("｛", content)
 
 
 class CapabilityTests(unittest.TestCase):

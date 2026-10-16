@@ -20,7 +20,7 @@ from flask import Flask, jsonify, request, send_from_directory, Response
 import requests
 from werkzeug.exceptions import HTTPException
 
-from . import media, news, writing, youtube
+from . import media, news, writing, youtube, translation
 
 ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(ROOT / '.env')
@@ -55,6 +55,7 @@ def create_app(data_dir=None, testing=False):
     oauth_states = {}
     oauth_lock = threading.Lock()
     ollama_cache = {'checked': 0, 'ready': False}
+    translation_slots = threading.Semaphore(2)
 
     @contextmanager
     def connection():
@@ -72,7 +73,7 @@ def create_app(data_dir=None, testing=False):
         # A process restart cannot leave jobs pretending to run.
         for pid, body in db.execute("SELECT id,body FROM documents WHERE kind='project'"):
             project = json.loads(body)
-            if project.get('status') in {'queued', 'rendering', 'uploading'}:
+            if project.get('status') in {'queued', 'rendering', 'uploading', 'translating'}:
                 if project.get('status') == 'uploading':
                     project['upload_uncertain'] = True
                 project.update(status='error', error='İşlem uygulama kapandığı için tamamlanamadı. Tekrar deneyin.')
@@ -157,6 +158,19 @@ def create_app(data_dir=None, testing=False):
             result['tags'] = tags
         return result
 
+    def article_input(fields):
+        if fields.get('news_id'):
+            return get('news', str(fields['news_id']))
+        title, summary = fields.get('title', ''), fields.get('summary', '')
+        source, url = fields.get('source', 'Manuel'), fields.get('url', '')
+        if not isinstance(title, str) or not title.strip() or len(title) > 300 or not isinstance(summary, str) or len(summary) > 2000:
+            raise ValueError('Başlık gerekli (en fazla 300), özet en fazla 2000 karakter olmalı.')
+        if not isinstance(url, str) or len(url) > 2000 or (url and not news.canonical_url(url)):
+            raise ValueError('Geçerli bir kaynak bağlantısı kullanın.')
+        if not isinstance(source, str) or len(source) > 100:
+            raise ValueError('Kaynak en fazla 100 karakter olmalı.')
+        return dict(title=title.strip(), summary=summary.strip(), source=source, url=url)
+
     @app.before_request
     def local_only():
         if app.testing:
@@ -211,12 +225,18 @@ def create_app(data_dir=None, testing=False):
             except (requests.RequestException, ValueError, TypeError):
                 ollama_cache['ready'] = False
             ollama_cache['checked'] = time.monotonic()
-        return jsonify(app='hype-studio', api_version=2, project_root=str(ROOT), data_dir=str(data),
+        return jsonify(app='hype-studio', api_version=3, app_version='0.3.0', project_root=str(ROOT), data_dir=str(data),
                        **caps, ai=ollama_cache['ready'],
                        youtube=token_path.exists() and youtube.configured(), youtube_configured=youtube.configured(),
                        stats={'news': len(cached_news()), 'projects': len(projects),
                               'ready': sum(p.get('status') == 'ready' and bool(p.get('video_url')) for p in projects),
-                              'active': sum(p.get('status') in {'queued', 'rendering', 'uploading'} for p in projects)},
+                              'active': sum(p.get('status') in {'queued', 'rendering', 'uploading', 'translating'} for p in projects)},
+                       translation={'target_language': 'tr', 'default_provider': 'ollama',
+                                    'providers': {'ollama': ollama_cache['ready'], 'openai': bool(os.getenv('OPENAI_API_KEY')),
+                                                  'anthropic': bool(os.getenv('ANTHROPIC_API_KEY'))},
+                                    'model': os.getenv('OLLAMA_MODEL', 'llama3.2:3b'),
+                                    'setup_commands': ['brew install ollama', 'brew services start ollama',
+                                                       'ollama pull ' + os.getenv('OLLAMA_MODEL', 'llama3.2:3b')]},
                        providers={'tts': caps.get('provider', 'local'), 'ai': 'Şablon / isteğe bağlı Ollama'},
                        configured={'openai': bool(os.getenv('OPENAI_API_KEY')), 'anthropic': bool(os.getenv('ANTHROPIC_API_KEY')),
                                    'elevenlabs': bool(os.getenv('ELEVENLABS_API_KEY') and os.getenv('ELEVENLABS_VOICE_ID'))},
@@ -269,7 +289,7 @@ def create_app(data_dir=None, testing=False):
         values = all_docs('project')
         search = request.args.get('search', '').strip().casefold()
         status = request.args.get('status', 'all')
-        if status not in {'all', 'draft', 'queued', 'rendering', 'ready', 'error', 'uploading', 'uploaded'}:
+        if status not in {'all', 'draft', 'queued', 'rendering', 'ready', 'error', 'uploading', 'uploaded', 'translating'}:
             raise ValueError('Geçersiz proje durumu')
         if search:
             values = [p for p in values if search in ' '.join(str(p.get(key, '')) for key in ('title', 'script', 'source')).casefold()]
@@ -279,27 +299,39 @@ def create_app(data_dir=None, testing=False):
             values = [p for p in values if p.get('status') == status and (status != 'ready' or not p.get('youtube_id'))]
         return jsonify(items=[public_project(p) for p in values])
 
+    @app.post('/api/translate')
+    def translate_article():
+        fields = body()
+        article = article_input(fields)
+        provider = translation.provider_name(fields.get('provider', 'ollama'))
+        if not translation_slots.acquire(blocking=False):
+            return jsonify(error='Çeviri işlemleri dolu. Devam eden çevirinin bitmesini bekleyin.'), 429
+        try:
+            result = translation.translate_article(article, provider)
+            event(f'Haber Türkçeye çevrildi: {result["title"]}', 'success')
+            return jsonify(result)
+        finally:
+            translation_slots.release()
+
     @app.post('/api/projects')
     def create_project():
         fields = body()
-        if fields.get('news_id'):
-            article = get('news', str(fields['news_id']))
-        else:
-            title = fields.get('title', '')
-            summary = fields.get('summary', '')
-            source = fields.get('source', 'Manuel')
-            url = fields.get('url', '')
-            if not isinstance(title, str) or not title.strip() or len(title) > 300 or not isinstance(summary, str) or len(summary) > 2000:
-                raise ValueError('Başlık gerekli (en fazla 300), özet en fazla 2000 karakter olmalı.')
-            if not isinstance(url, str) or len(url) > 2000 or (url and not news.canonical_url(url)):
-                raise ValueError('Geçerli bir kaynak bağlantısı kullanın.')
-            if not isinstance(source, str) or len(source) > 100:
-                raise ValueError('Kaynak en fazla 100 karakter olmalı.')
-            article = dict(title=title, summary=summary, source=source, url=url)
-        draft = writing.generate(article, fields.get('mode', 'template'))
+        article = article_input(fields)
+        mode = fields.get('mode', 'template')
+        language = fields.get('language', 'tr' if mode != 'template' else 'original')
+        if not isinstance(language, str) or language not in {'tr', 'original'}:
+            raise ValueError('İçerik dili Türkçe veya kaynak dili olmalı.')
+        translated = None
+        if 'translation' in fields:
+            if fields.get('news_id') or language != 'tr':
+                raise ValueError('Çevrilen metni Türkçe içerik olarak gönderin; kaynak haber kimliğiyle özgün metni geri yüklemeyin.')
+            translated = translation.metadata(fields['translation'])
+        draft = writing.generate(article, mode)
         validate(draft)
-        result = dict(id=uuid.uuid4().hex, **draft, source=article['source'], source_url=article['url'],
+        result = dict(id=uuid.uuid4().hex, **draft, source=article['source'], source_url=article['url'], language=language,
                       status='draft', progress=0, created=now(), updated=now(), error=None)
+        if translated:
+            result.update(translation=translated, editorial_note='Türkçe çeviri taslağı. Kaynak metinle karşılaştırın; Türkçe ses ve altyazı bu metinden üretilir.')
         put('project', result)
         event(f'Taslak oluşturuldu: {result["title"]}', 'success')
         return jsonify(public_project(result)), 201
@@ -307,6 +339,40 @@ def create_app(data_dir=None, testing=False):
     @app.get('/api/projects/<ident>')
     def project_get(ident):
         return jsonify(public_project(project(ident)))
+
+    @app.post('/api/projects/<ident>/translate')
+    def translate_existing_project(ident):
+        fields = body()
+        provider = translation.provider_name(fields.get('provider', 'ollama'))
+        with jobs_lock:
+            original = project(ident)
+            if ident in active:
+                return jsonify(error='İşlem sürerken proje çevrilemez.'), 409
+            if original.get('youtube_id'):
+                return jsonify(error='Yayımlanmış videoyu korumak için önce projeyi çoğaltın, ardından kopyayı Türkçeye çevirin.'), 409
+            if len(active) >= 3 or not translation_slots.acquire(blocking=False):
+                return jsonify(error='Çeviri kuyruğu dolu. Bir işlemin bitmesini bekleyin.'), 429
+            active.add(ident)
+            put('project', {**original, 'status': 'translating', 'error': None})
+        try:
+            translated = translation.translate_project(original, provider)
+            validate(translated)
+            result = {**original, **translated, 'status': 'draft', 'progress': 0, 'error': None, 'updated': now()}
+            for key in ('video_url', 'subtitle_url', 'video_path', 'duration', 'render_options', 'provider',
+                        'voice', 'speech', 'subtitle_timing', 'scene_count', 'design'):
+                result.pop(key, None)
+            with jobs_lock:
+                put('project', result)
+                active.discard(ident)
+            event(f'Video metinleri Türkçeye çevrildi: {result["title"]}', 'success')
+            return jsonify(public_project(result))
+        except Exception:
+            with jobs_lock:
+                put('project', original)
+                active.discard(ident)
+            raise
+        finally:
+            translation_slots.release()
 
     @app.patch('/api/projects/<ident>')
     def project_edit(ident):
@@ -322,7 +388,7 @@ def create_app(data_dir=None, testing=False):
                 result['updated'] = now()
             if changes_video:
                 for key in ['video_url', 'subtitle_url', 'video_path', 'duration', 'render_options',
-                            'provider', 'voice', 'speech', 'subtitle_timing']:
+                            'provider', 'voice', 'speech', 'subtitle_timing', 'scene_count', 'design']:
                     result.pop(key, None)
                 result['status'] = 'draft'
                 result['progress'] = 0
@@ -332,7 +398,7 @@ def create_app(data_dir=None, testing=False):
     @app.post('/api/projects/<ident>/duplicate')
     def duplicate_project(ident):
         original = project(ident)
-        keys = ('title', 'script', 'description', 'tags', 'source', 'source_url', 'generation_mode', 'editorial_note')
+        keys = ('title', 'script', 'description', 'tags', 'source', 'source_url', 'generation_mode', 'editorial_note', 'language', 'translation')
         result = {key: original[key] for key in keys if key in original}
         result.update(id=uuid.uuid4().hex, title=original['title'][:90] + ' — kopya', status='draft',
                       progress=0, error=None, created=now(), updated=now())
@@ -344,7 +410,7 @@ def create_app(data_dir=None, testing=False):
     def export_project(ident):
         original = project(ident)
         keys = ('id', 'title', 'script', 'description', 'tags', 'source', 'source_url', 'generation_mode',
-                'editorial_note', 'created', 'updated')
+                'editorial_note', 'created', 'updated', 'language', 'translation')
         export = {key: original[key] for key in keys if key in original}
         export['schema_version'] = 1
         return Response(json.dumps(export, ensure_ascii=False, indent=2), content_type='application/json; charset=utf-8',
@@ -382,7 +448,7 @@ def create_app(data_dir=None, testing=False):
                 output = media.render(result, target, opts, progress)
                 video = Path(output['video_path']).resolve()
                 subtitle = Path(output['subtitle_path']).resolve()
-                result.update({key: output[key] for key in ('provider', 'voice', 'speech', 'subtitle_timing') if key in output})
+                result.update({key: output[key] for key in ('provider', 'voice', 'speech', 'subtitle_timing', 'scene_count', 'design') if key in output})
                 result.update(status='ready', progress=100, error=None, duration=output['duration'],
                               video_path=str(video), video_url='/media/' + str(video.relative_to(data / 'renders')),
                               subtitle_url='/media/' + str(subtitle.relative_to(data / 'renders')),
@@ -410,7 +476,9 @@ def create_app(data_dir=None, testing=False):
             raise ValueError('Geçersiz video ayarları')
         if 'speech_rate' in opts and (isinstance(opts['speech_rate'], bool) or not isinstance(opts['speech_rate'], int) or not 100 <= opts['speech_rate'] <= 240):
             raise ValueError('Konuşma hızı 100 ile 240 arasında olmalı.')
-        opts = {key: opts[key] for key in ('style', 'tts_provider', 'speech', 'speech_rate') if key in opts}
+        if opts.get('video_design', 'kinetic') not in {'kinetic', 'classic'}:
+            raise ValueError('Video tasarımı animasyonlu sahneler veya klasik olmalı.')
+        opts = {key: opts[key] for key in ('style', 'tts_provider', 'speech', 'speech_rate', 'video_design') if key in opts}
         with jobs_lock:
             result = project(ident)
             if ident in active:

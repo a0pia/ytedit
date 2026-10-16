@@ -260,7 +260,160 @@ def _title_layout(title: str) -> tuple[int, str]:
     return 30, "\n".join(lines[:3] + [last + "…"])
 
 
-def _write_subtitles(output_dir: Path, title: str, segments: list[tuple[float, float, str]], duration: float) -> tuple[Path, Path]:
+def _fit_display(text: str, *, sizes: tuple[int, ...], width: int = 590, lines: int = 4,
+                 height: int = 430) -> tuple[int, str]:
+    for size in sizes:
+        wrapped = _wrap_lines(" ".join(text.split()), characters=38, em_width=width / size)
+        orphan = len(wrapped) > 1 and len(wrapped[-1].strip(".,!?…:; ")) < 3
+        if len(wrapped) <= lines and len(wrapped) * size * 1.2 <= height and not orphan:
+            return size, "\n".join(wrapped)
+    if len(wrapped) <= lines:
+        return size, "\n".join(wrapped)
+    tail = wrapped[lines - 1].rstrip()
+    while tail and sum(map(_glyph_width, tail + "…")) > width / size:
+        tail = tail[:-1].rstrip()
+    return size, "\n".join(wrapped[:lines - 1] + [tail + "…"])
+
+
+def _source_phrase(sentence: str, position: float = .5) -> str:
+    """An exact contiguous source excerpt, never a generated fact or statistic."""
+    normalized = " ".join(sentence.split())
+    matches = list(re.finditer(r"\S+", normalized))
+    if len(normalized) <= 82 or len(matches) <= 7:
+        return normalized
+    center = min(len(matches) - 1, max(0, int(position * len(matches))))
+    start = max(0, min(center - 3, len(matches) - 7))
+    end = min(len(matches), start + 9)
+    while end - start > 4 and matches[end - 1].end() - matches[start].start() > 90:
+        end -= 1
+    return normalized[matches[start].start():matches[end - 1].end()]
+
+
+def _kinetic_plan(duration: float, spans: list[tuple[float, float, str]]) -> list[dict]:
+    hook = min(2.6, duration * .45)
+    remaining = duration - hook
+    count = max(1, round(remaining / 3.6))
+    scenes = [{"start": 0.0, "end": hook, "layout": "hook", "phrase": ""}]
+    for index in range(count):
+        start = hook + remaining * index / count
+        end = duration if index == count - 1 else hook + remaining * (index + 1) / count
+        span = max(spans, key=lambda item: max(0, min(end, item[1]) - max(start, item[0])))
+        relative = max(0.0, min(1.0, ((start + end) / 2 - span[0]) / max(.01, span[1] - span[0])))
+        scenes.append({"start": start, "end": end, "layout": ("editorial", "card", "statement")[index % 3],
+                       "phrase": _source_phrase(span[2], relative)})
+    return scenes
+
+
+def _ass_rgb(hexadecimal: str) -> str:
+    return "&H" + hexadecimal[4:6] + hexadecimal[2:4] + hexadecimal[0:2] + "&"
+
+
+def _round_rect(width: int, height: int, radius: int = 20) -> str:
+    r, w, h = radius, width, height
+    return (f"m {r} 0 l {w-r} 0 b {w} 0 {w} 0 {w} {r} l {w} {h-r} "
+            f"b {w} {h} {w} {h} {w-r} {h} l {r} {h} b 0 {h} 0 {h} 0 {h-r} "
+            f"l 0 {r} b 0 0 0 0 {r} 0")
+
+
+def _circle(radius: int) -> str:
+    r, k = radius, round(radius * .5523)
+    return (f"m {r} 0 b {r+k} 0 {2*r} {r-k} {2*r} {r} "
+            f"b {2*r} {r+k} {r+k} {2*r} {r} {2*r} "
+            f"b {r-k} {2*r} 0 {r+k} 0 {r} b 0 {r-k} {r-k} 0 {r} 0")
+
+
+def _kinetic_events(title: str, segments: list[tuple[float, float, str]],
+                    scenes: list[dict], duration: float, style: str) -> list[str]:
+    """Original vector motion design. Every visible source phrase is verbatim."""
+    events: list[str] = []
+    colors = [("111B22", "C8FF58"), ("211737", "C2A3FF"),
+              ("33201E", "FFB584"), ("122B33", "81DEFF")]
+    if style == "sunset":
+        colors = [colors[2], colors[1], colors[3], colors[0]]
+
+    def event(start, end, layer, tags, content):
+        events.append(f"Dialogue: {layer},{_timestamp(start, True)},{_timestamp(end, True)},Motion,,0,0,0,,{{{tags}}}{content}")
+
+    def shape(start, end, layer, path, color, placement, extra="", alpha="00"):
+        event(start, end, layer, rf"\an7\bord0\shad0\1c{_ass_rgb(color)}\1a&H{alpha}&{placement}{extra}\p1", path + r"{\p0}")
+
+    def text(start, end, content, x, y, size, color="FFFFFF", align=7, extra="", layer=6):
+        event(start, end, layer, rf"\an{align}\pos({x},{y})\fs{size}\1c{_ass_rgb(color)}\bord0\shad0{extra}", _ass_escape(content))
+
+    for index, scene in enumerate(scenes):
+        start, end = scene["start"], scene["end"]
+        milliseconds = max(1, round((end - start) * 1000))
+        base, accent = colors[index % len(colors)]
+        layout = scene["layout"]
+        shape(start, end, 0, "m 0 0 l 720 0 720 1280 0 1280", base, r"\pos(0,0)")
+        # Independently moving oversized geometry makes the canvas move even
+        # between typography entrances. Shapes are generated locally as vectors.
+        shape(start, end, 1, _circle(220), accent,
+              rf"\move(480,-140,350,40,0,{milliseconds})", alpha="D5")
+        shape(start, end, 1, "m 0 0 l 200 0 200 200 0 200", accent,
+              rf"\move(-140,650,70,720,0,{milliseconds})", rf"\frz-28\t(0,{milliseconds},\frz18)", "C0")
+        shape(start, end, 1, _round_rect(390, 100, 48), accent,
+              rf"\move(430,760,285,680,0,{milliseconds})", rf"\frz-24\t(0,{milliseconds},\frz-8)", "C8")
+        for grid_y in (320, 520, 720, 920):
+            shape(start, end, 1, "m 0 0 l 720 0 720 1 0 1", "FFFFFF", rf"\pos(0,{grid_y})", alpha="F0")
+
+        text(start, end, "HYPE / TEKNOLOJİ", 60, 104, 21, accent, extra=r"\fsp3\fad(80,100)")
+        text(start, end, f"{index+1:02d} / {len(scenes):02d}", 660, 104, 20, "FFFFFF", 9,
+             extra=r"\1a&H55&\fad(80,100)")
+        if layout == "hook":
+            text(start, end, "BUGÜNÜN KONUSU", 62, 225, 21, accent, extra=r"\fsp2\fad(0,160)")
+            size, fitted = _fit_display(title, sizes=(88, 80, 72, 64, 56, 48), width=585, lines=4)
+            line_height = round(size * 1.14)
+            for line_number, line in enumerate(fitted.splitlines()):
+                delay = min(.10 * line_number, (end - start) * .15)
+                y = 330 + line_number * line_height
+                # Lines enter separately with a quick overshoot; user-provided
+                # ASS control syntax is always escaped before reaching libass.
+                event(start + delay, end, 6,
+                      rf"\an7\move(92,{y+30},60,{y},0,380)\fs{size}\1c&HFFFFFF&\bord0\shad0\fscx108\fscy108\t(0,330,\fscx100\fscy100)\fad(0,140)",
+                      _ass_escape(line))
+            shape(start, end, 3, _round_rect(160, 10, 5), accent, r"\pos(62,825)",
+                  rf"\fscx0\t(0,480,\fscx100)\fad(0,120)")
+        elif layout == "editorial":
+            text(start, end, "ODAK NOKTASI", 62, 225, 20, accent, extra=r"\fsp2\fad(100,130)")
+            size, fitted = _fit_display(scene["phrase"], sizes=(72, 64, 56, 50, 44, 38), width=585, lines=6, height=400)
+            event(start, end, 6, rf"\an7\move(12,355,62,325,0,360)\fs{size}\1c&HFFFFFF&\bord0\shad0\fad(100,140)", _ass_escape(fitted))
+            shape(start, end, 3, _round_rect(9, 370, 4), accent, r"\pos(28,320)", r"\fscy0\t(0,450,\fscy100)\fad(0,120)")
+            for bar in range(5):
+                shape(start, end, 3, _round_rect(28, 60 + bar * 20, 12), accent,
+                      rf"\pos({64+bar*44},818)", rf"\fscy25\t({bar*70},{600+bar*70},\fscy100)\t(900,{milliseconds},\fscy55)", "44")
+        elif layout == "card":
+            shape(start, end, 3, _round_rect(600, 440, 34), accent,
+                  r"\move(60,365,60,315,0,420)", r"\fad(90,140)")
+            size, fitted = _fit_display(scene["phrase"], sizes=(64, 58, 52, 46, 40, 34), width=500, lines=6, height=280)
+            text(start + .10, end, "GÜNDEMDE", 98, 350, 19, base, extra=r"\fsp3\fad(80,140)")
+            text(start + .14, end, fitted, 360, 540, size, base, 5,
+                 extra=r"\fscx96\fscy96\t(0,300,\fscx100\fscy100)\fad(90,140)")
+            text(start + .20, end, "HYPE / GÜNDEM", 98, 702, 15, base, extra=r"\fsp1\1a&H55&\fad(90,140)")
+        else:
+            text(start, end, "YAKINDAN BAKIŞ", 62, 225, 20, accent, extra=r"\fsp2\fad(100,140)")
+            shape(start, end, 3, "m 0 0 l 505 0 505 6 0 6", accent, r"\pos(62,302)",
+                  rf"\fscx0\t(0,420,\fscx100)\fad(0,140)")
+            size, fitted = _fit_display(scene["phrase"], sizes=(68, 60, 54, 48, 42, 36), width=580, lines=6, height=400)
+            event(start, end, 6, rf"\an7\move(62,440,62,378,0,420)\fs{size}\1c{_ass_rgb(accent)}\bord0\shad0\fad(100,140)", _ass_escape(fitted))
+            shape(start, end, 2, "m 0 0 l 70 0 70 70 0 70", accent,
+                  rf"\move(520,790,570,720,0,{milliseconds})", rf"\frz0\t(0,{milliseconds},\frz90)", "77")
+
+    # The captions remain tied to recorded sentence durations across all cuts.
+    shape(0, duration, 7, _round_rect(624, 180, 24), "070B12", r"\pos(48,932)", alpha="30")
+    for start, end, caption in segments:
+        event(start, end, 9,
+              r"\an2\pos(360,1084)\fs44\1c&HFFFFFF&\bord1.5\3c&H120B07&\shad0\fscx97\fscy97\t(0,100,\fscx100\fscy100)\fad(0,35)",
+              _ass_escape(caption))
+    accent = colors[0][1]
+    shape(0, duration, 8, "m 0 0 l 600 0 600 4 0 4", "FFFFFF", r"\pos(60,1172)", alpha="D8")
+    shape(0, duration, 9, "m 0 0 l 600 0 600 4 0 4", accent, r"\pos(60,1172)",
+          rf"\fscx0\t(0,{round(duration*1000)},\fscx100)")
+    return events
+
+
+def _write_subtitles(output_dir: Path, title: str, segments: list[tuple[float, float, str]], duration: float,
+                     *, scenes: list[dict] | None = None, style: str = "aurora") -> tuple[Path, Path]:
     subtitle_path = output_dir / "captions.srt"
     subtitle_path.write_text("\n\n".join(
         f"{i}\n{_timestamp(start)} --> {_timestamp(end)}\n{text}"
@@ -278,15 +431,19 @@ Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour,
 Style: Caption,{font},44,&H00FFFFFF,&H000000FF,&H00140F15,&H80000000,-1,0,0,0,100,100,0,0,1,3,1,2,48,48,270,1
 Style: Title,{font},46,&H00FFFFFF,&H000000FF,&H00301B20,&H00000000,-1,0,0,0,100,100,0,0,1,1,0,8,66,66,205,1
 Style: Label,{font},20,&H00CCFFC5,&H000000FF,&H00000000,&H00000000,-1,0,0,0,100,100,3,0,1,0,0,8,50,50,138,1
+Style: Motion,{font},44,&H00FFFFFF,&H000000FF,&H00120B07,&H00000000,-1,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
-    title_size, fitted_title = _title_layout(title)
-    events = [f"Dialogue: 0,0:00:00.00,{_timestamp(duration, True)},Label,,0,0,0,,TEKNOLOJİ GÜNDEMİ",
-              f"Dialogue: 0,0:00:00.00,{_timestamp(duration, True)},Title,,0,0,0,,{{\\fs{title_size}}}{_ass_escape(fitted_title)}"]
-    events.extend(f"Dialogue: 1,{_timestamp(start, True)},{_timestamp(end, True)},Caption,,0,0,0,,{_ass_escape(text)}"
-                  for start, end, text in segments)
+    if scenes:
+        events = _kinetic_events(title, segments, scenes, duration, style)
+    else:
+        title_size, fitted_title = _title_layout(title)
+        events = [f"Dialogue: 0,0:00:00.00,{_timestamp(duration, True)},Label,,0,0,0,,TEKNOLOJİ GÜNDEMİ",
+                  f"Dialogue: 0,0:00:00.00,{_timestamp(duration, True)},Title,,0,0,0,,{{\\fs{title_size}}}{_ass_escape(fitted_title)}"]
+        events.extend(f"Dialogue: 1,{_timestamp(start, True)},{_timestamp(end, True)},Caption,,0,0,0,,{_ass_escape(text)}"
+                      for start, end, text in segments)
     ass_path = output_dir / "captions.ass"
     ass_path.write_text(header + "\n".join(events) + "\n", encoding="utf-8")
     return subtitle_path, ass_path
@@ -428,6 +585,9 @@ def _render_work(project: dict, output_dir: Path, options: dict | None = None,
     style = options.get("style", "aurora")
     if style not in ("aurora", "sunset"):
         raise MediaError("Desteklenmeyen video teması. aurora veya sunset seçin.")
+    design = options.get("video_design", "kinetic")
+    if design not in ("kinetic", "classic"):
+        raise MediaError("Desteklenmeyen video tasarımı. kinetic veya classic seçin.")
     try:
         rate = int(options.get("speech_rate", 170))
     except (ValueError, TypeError):
@@ -440,6 +600,7 @@ def _render_work(project: dict, output_dir: Path, options: dict | None = None,
     report(5)
     sentences = _sentences(script)
     segments = []
+    spans = []
     cursor = 0.0
     audio_files = []
     for index, sentence in enumerate(sentences):
@@ -452,6 +613,7 @@ def _render_work(project: dict, output_dir: Path, options: dict | None = None,
             duration = max(2.0, len(sentence.split()) / 2.6)
         if not duration or cursor + duration > MAX_DURATION:
             raise MediaError("Video 90 saniyeyi aşıyor. Senaryoyu kısaltıp yeniden deneyin.")
+        spans.append((cursor, cursor + duration, sentence))
         chunks = _subtitle_chunks(sentence)
         weight = sum(len(chunk) for chunk in chunks)
         minimum = min(.65, duration / len(chunks) * .7)
@@ -478,13 +640,19 @@ def _render_work(project: dict, output_dir: Path, options: dict | None = None,
             combined.setsampwidth(2)
             combined.setframerate(SAMPLE_RATE)
             combined.writeframes(b"\0\0" * math.ceil(cursor * SAMPLE_RATE))
-    subtitle_path, _ = _write_subtitles(output_dir, title, segments, cursor)
-    _background(output_dir / "background.ppm", style)
+    scenes = _kinetic_plan(cursor, spans) if design == "kinetic" else None
+    subtitle_path, _ = _write_subtitles(output_dir, title, segments, cursor, scenes=scenes, style=style)
+    if design == "classic":
+        _background(output_dir / "background.ppm", style)
+        inputs = ["-loop", "1", "-framerate", "24", "-i", "background.ppm", "-i", "narration.wav"]
+        filters = "scale=720:1280,zoompan=z='min(zoom+0.00020,1.035)':x='iw/2-iw/zoom/2':y='ih/2-ih/zoom/2':d=1:s=720x1280:fps=24,ass=captions.ass"
+    else:
+        inputs = ["-f", "lavfi", "-i", f"color=c=0x111B22:s=720x1280:r=24:d={cursor:.6f}", "-i", "narration.wav"]
+        filters = "ass=captions.ass"
     report(65)
     video_path = output_dir / "reel.mp4"
-    filters = "scale=720:1280,zoompan=z='min(zoom+0.00020,1.035)':x='iw/2-iw/zoom/2':y='ih/2-ih/zoom/2':d=1:s=720x1280:fps=24,ass=captions.ass"
     _encode([shutil.which("ffmpeg"), "-nostdin", "-hide_banner", "-loglevel", "error", "-y", "-nostats", "-stats_period", "0.1", "-progress", "pipe:1",
-          "-loop", "1", "-framerate", "24", "-i", "background.ppm", "-i", "narration.wav",
+          *inputs,
           "-vf", filters, "-t", f"{cursor:.6f}", "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
           "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart",
           "-threads", "2", "-filter_threads", "2", "-shortest", "reel.mp4"], output_dir, cursor, report)
@@ -507,7 +675,8 @@ def _render_work(project: dict, output_dir: Path, options: dict | None = None,
             "duration": round(actual_duration, 2), "speech": speech,
             "provider": ("ElevenLabs" if provider == "elevenlabs" else engine["provider"]) if speech else "Sessiz video",
             "voice": engine["voice"] if speech and provider == "local" else "",
-            "subtitle_timing": "sentence_audio" if speech else "estimated"}
+            "subtitle_timing": "sentence_audio" if speech else "estimated",
+            "design": design, "scene_count": len(scenes) if scenes else 1}
 
 
 def render(project: dict, output_dir: Path, options: dict | None = None,

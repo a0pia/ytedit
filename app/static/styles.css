@@ -2387,6 +2387,124 @@ textarea.text-input {
   height: 14px;
   width: 14px;
 }
+.translation-tools {
+  margin-top: 22px;
+  padding: 18px 0 4px;
+  border-top: 1px solid var(--line);
+}
+.translation-tools .label-with-meta .field-label {
+  margin: 0;
+}
+.language-tag {
+  color: #d5edb9;
+  background: #c4f28b12;
+  border: 1px solid #c4f28b25;
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 11px;
+}
+.translation-controls {
+  display: flex;
+  align-items: stretch;
+  gap: 9px;
+}
+.translation-controls > select {
+  flex: 1;
+  min-width: 0;
+}
+.translation-controls > .button {
+  flex-shrink: 0;
+  font-size: 11px;
+}
+.translation-help {
+  margin: 8px 0 12px;
+}
+.translation-help .field-help {
+  margin: 8px 0;
+}
+.translation-install summary,
+.original-comparison summary {
+  cursor: pointer;
+  color: #d5dced;
+  font-size: 11px;
+  line-height: 1.6;
+}
+.translation-install pre {
+  margin: 10px 0;
+  padding: 12px;
+  border-radius: 8px;
+  background: #101a2b75;
+  border: 1px solid var(--line);
+  overflow-x: auto;
+  color: #d9edc7;
+  font-size: 11px;
+  line-height: 1.9;
+}
+.original-comparison {
+  margin-top: 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+.original-comparison h3,
+.original-comparison strong {
+  display: block;
+  margin: 13px 0 7px;
+  font-size: 12px;
+  color: #e1e7ef;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.original-comparison p {
+  margin: 0 0 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  line-height: 1.8;
+  color: #b9c6d7;
+}
+.translation-source {
+  margin: 0 0 19px;
+  background: #101a2b30;
+}
+.translation-source .text-button {
+  font-size: 11px;
+}
+.manual-translation-button {
+  margin: 10px 0 2px;
+  font-size: 11px;
+}
+.translation-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 14px 0;
+  font-size: 12px;
+  color: #d5edb9;
+}
+.translation-progress svg {
+  width: 15px;
+  height: 15px;
+}
+#translation-dialog {
+  width: min(630px, calc(100vw - 32px));
+}
+#translation-dialog .translation-controls {
+  margin-bottom: 10px;
+}
+.news-card-footer {
+  flex-wrap: wrap;
+}
+@media (max-width: 720px) {
+  .translation-controls {
+    flex-wrap: wrap;
+  }
+  .translation-controls > select,
+  .translation-controls > .button {
+    width: 100%;
+    flex-basis: 100%;
+  }
+}
 dialog {
   border: 1px solid #ffffff29;
   border-radius: 20px;

@@ -25,15 +25,14 @@ def template(article):
                 editorial_note='Şablon kaynak dilini korur. Yayından önce Türkçeleştirin ve haberi doğrulayın.')
 
 
-def generate(article, mode):
-    if mode == 'template':
-        return template(article)
-    user = json.dumps(article, ensure_ascii=False)
+def request_json(system, payload, mode):
+    """Shared explicit provider transport; never fall back to a billable provider."""
+    user = json.dumps(payload, ensure_ascii=False)
     if mode == 'ollama':
         base = os.getenv('OLLAMA_BASE_URL', 'http://127.0.0.1:11434').rstrip('/')
         response = requests.post(base + '/api/chat', json={
             'model': os.getenv('OLLAMA_MODEL', 'llama3.2:3b'), 'stream': False, 'format': 'json',
-            'messages': [{'role': 'system', 'content': SYSTEM}, {'role': 'user', 'content': user}]}, timeout=(5, 180))
+            'messages': [{'role': 'system', 'content': system}, {'role': 'user', 'content': user}]}, timeout=(5, 180))
         response.raise_for_status()
         content = response.json()['message']['content']
     elif mode == 'openai':
@@ -42,7 +41,7 @@ def generate(article, mode):
             raise ValueError('OPENAI_API_KEY ayarlanmamış. API ayrı ücretlendirilir; Pro aboneliği kullanılamaz.')
         response = requests.post('https://api.openai.com/v1/chat/completions', headers={'Authorization': f'Bearer {key}'}, json={
             'model': os.getenv('OPENAI_MODEL', 'gpt-4o-mini'), 'response_format': {'type': 'json_object'},
-            'messages': [{'role': 'system', 'content': SYSTEM}, {'role': 'user', 'content': user}]}, timeout=(5, 90))
+            'messages': [{'role': 'system', 'content': system}, {'role': 'user', 'content': user}]}, timeout=(5, 90))
         response.raise_for_status()
         content = response.json()['choices'][0]['message']['content']
     elif mode == 'anthropic':
@@ -51,7 +50,7 @@ def generate(article, mode):
             raise ValueError('ANTHROPIC_API_KEY ayarlanmamış. API ayrı ücretlendirilir; Pro aboneliği kullanılamaz.')
         response = requests.post('https://api.anthropic.com/v1/messages', headers={'x-api-key': key, 'anthropic-version': '2023-06-01'}, json={
             'model': os.getenv('ANTHROPIC_MODEL', 'claude-haiku-4-5'), 'max_tokens': 1000,
-            'system': SYSTEM, 'messages': [{'role': 'user', 'content': user}]}, timeout=(5, 90))
+            'system': system, 'messages': [{'role': 'user', 'content': user}]}, timeout=(5, 90))
         response.raise_for_status()
         content = response.json()['content'][0]['text']
     else:
@@ -65,6 +64,13 @@ def generate(article, mode):
         raise ValueError('Model geçerli JSON döndürmedi. Yeniden deneyin veya metni elle düzenleyin.') from None
     if not isinstance(result, dict):
         raise ValueError('Model geçerli bir senaryo nesnesi döndürmedi.')
+    return result
+
+
+def generate(article, mode):
+    if mode == 'template':
+        return template(article)
+    result = request_json(SYSTEM, article, mode)
     for field, limit in [('title', 100), ('script', 1200), ('description', 4500)]:
         if not isinstance(result.get(field), str) or not result[field].strip() or len(result[field]) > limit:
             raise ValueError('Model geçerli uzunlukta bir senaryo döndürmedi. Metni elle düzenleyin.')

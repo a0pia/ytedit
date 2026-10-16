@@ -16,7 +16,7 @@
 
 ## Doğrulama
 
-- 137 Python testi ve 7 masaüstü yaşam döngüsü testi başarılı.
+- 176 Python testi ve 8 masaüstü yaşam döngüsü testi başarılı.
 - Gerçek Türkçe yerel sesli ve sessiz video çıktıları FFmpeg/ffprobe ile doğrulandı.
 - Gerçek tarayıcıda taslak oluşturma, düzenleme, video üretme, oynatılabilir video boyutları, SRT ve yükleme onayı doğrulandı.
 - Masaüstü başlatıcısının ve kurulum betiklerinin sözdizimi kontrolleri başarılı.
@@ -38,3 +38,13 @@ Kurulum ve başlatma yönergeleri ortam yapılandırma taslağının `install_sc
 - Kısmi RSS hatalarında güncel önbelleğin korunması ve kaynak sağlık bilgileri.
 - Homebrew/Python keşfi, proje sanal ortamının doğru kullanımı, devam eden işlerde kapanış onayı ve sahip olunan medya süreçlerinin temizlenmesi.
 - Mac’in gerçek pencere davranışı ve gerçek YouTube hesabına yükleme hâlâ bu Linux makinesinde doğrulanmadı.
+
+## 0.3: Türkçe çeviri ve animasyonlu sahneler
+
+- Haber başlığı/özetini Türkçeye çevirip orijinaliyle karşılaştırarak Türkçe taslak oluşturma.
+- Mevcut video başlığı, anlatım, açıklama ve etiketlerini tek işlemle Türkçeye çevirme; çeviri başarısızsa önceki içerik ve video korunur.
+- Türkçe metinden yerel seslendirme ve senkron altyazı. Ücretsiz çeviri için Mac'te Ollama modeli gerekir; ücretli sağlayıcıya otomatik geçiş yapılmaz.
+- Hareketli giriş başlığı, değişen sahne düzenleri, renkli vurgu kartları, hareketli şekiller ve sahne sayacı. Klasik tasarım seçenek olarak korunur.
+- Gerçek sesli animasyonlu örnek: 22,5 saniye ve 7 sahne. Farklı zamanlardaki kareler ve sahne içindeki hareket doğrulandı.
+- Yabancı haber → kontrollü yerel HTTP model yanıtı → Türkçe proje → gerçek animasyonlu MP4/ses/SRT akışı tarayıcıda doğrulandı. Bu kontrollü model yanıtları, gerçek modelin çeviri kalitesini ölçmez.
+- Bu bulut ortamında `registry.ollama.ai` ve `ollama.com` adresleri proxy403 ile engellendiği için gerçek Ollama modeli indirilmedi/çalıştırılmadı. Mac'te ücretsiz kurulum adımları README.md içinde.

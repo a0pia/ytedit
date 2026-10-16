@@ -12,3 +12,10 @@
 - ElevenLabs gibi ses servislerine isteğe bağlı bağlantı.
 - ChatGPT/Claude hesabı bağlama isteği: Pro abonelikler API erişimi sağlamadığından, ücretsiz alternatif olarak yerel Ollama desteği; ücretli API bağlantıları yalnızca isteğe bağlı.
 - Tema için tekrar paylaşılan referansa göre yönetim paneli görünümü: üstte dumanlı gri, altta lacivert buzlu cam yüzey; canlı sarı, turuncu, mor, yeşil ve mavi kartlar; solda menü, sağda üretim hareketleri.
+
+## Türkçe ve animasyon için eklenen istekler
+
+- Yabancı haberler seçildiğinde video başlığı, anlatımı, açıklaması ve etiketleri Türkçeye çevrilsin; seslendirme ve altyazılar Türkçe olsun.
+- Orijinal haber metni ve kaynak korunarak çeviri karşılaştırılabilsin.
+- Videolar tek görsel üzerinde dönmesin: dikkat çeken hareketli giriş, sahne değişimleri, animasyonlu yazılar ve vurgu kartları kullanılsın.
+- Ücretsiz, uygulamanın kendisinin oluşturduğu grafikler ve yerel araçlar varsayılan olmaya devam etsin.

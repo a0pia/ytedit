@@ -1,6 +1,6 @@
 {
   "name": "hype-studio",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "description": "Ücretsiz araçlarla teknoloji haberlerinden kısa videolar üreten Mac stüdyosu",
   "main": "desktop/main.cjs",

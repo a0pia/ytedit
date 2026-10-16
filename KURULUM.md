@@ -44,7 +44,7 @@ Kurulum ve başlatma yönergeleri ortam yapılandırma taslağının `install_sc
 - Haber başlığı/özetini Türkçeye çevirip orijinaliyle karşılaştırarak Türkçe taslak oluşturma.
 - Mevcut video başlığı, anlatım, açıklama ve etiketlerini tek işlemle Türkçeye çevirme; çeviri başarısızsa önceki içerik ve video korunur.
 - Türkçe metinden yerel seslendirme ve senkron altyazı. Ücretsiz çeviri için Mac'te Ollama modeli gerekir; ücretli sağlayıcıya otomatik geçiş yapılmaz.
-- Hareketli giriş başlığı, değişen sahne düzenleri, renkli vurgu kartları, hareketli şekiller ve sahne sayacı. Klasik tasarım seçenek olarak korunur.
+- Remotion ile çizilen hareketli giriş başlığı, değişen sahne düzenleri, renkli vurgu kartları, anlatıcı, kelime kelime altyazı ve sahne çubuğu. Kurulum betiği Remotion bağımlılıklarını da yükler; ilk üretimde Remotion kendi başsız Chromium'unu bir kez indirir.
 - Gerçek sesli animasyonlu örnek: 22,5 saniye ve 7 sahne. Farklı zamanlardaki kareler ve sahne içindeki hareket doğrulandı.
 - Yabancı haber → kontrollü yerel HTTP model yanıtı → Türkçe proje → gerçek animasyonlu MP4/ses/SRT akışı tarayıcıda doğrulandı. Bu kontrollü model yanıtları, gerçek modelin çeviri kalitesini ölçmez.
 - Bu bulut ortamında `registry.ollama.ai` ve `ollama.com` adresleri proxy403 ile engellendiği için gerçek Ollama modeli indirilmedi/çalıştırılmadı. Mac'te ücretsiz kurulum adımları README.md içinde.

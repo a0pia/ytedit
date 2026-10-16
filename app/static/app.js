@@ -1353,13 +1353,11 @@
       }
     });
     $("#editor-original").hidden = !original.childElementCount;
-    $("#video-design").value = project.render_options?.video_design || project.design || "host";
+    const savedDesign = project.render_options?.video_design || project.design || "host";
+    $("#video-design").value = savedDesign === "classic" ? "kinetic" : savedDesign;
     $("#host-look").value = project.render_options?.host_look || "vega";
     $("#render-sfx").checked = project.render_options?.sfx !== false;
     $("#render-palette").value = project.render_options?.palette || "auto";
-    const savedStyle = project.render_options?.style || "capsule";
-    const styleInput = $(`input[name="render-style"][value="${savedStyle}"]`);
-    if (styleInput) styleInput.checked = true;
     $("#host-name").value = project.render_options?.host_name || "";
     $("#host-fields").hidden = $("#video-design").value !== "host";
     const savedOptions = project.render_options;
@@ -1513,7 +1511,7 @@
           throw new Error("Videoyu oluşturmadan önce altyazı zamanlarını kaydet.");
         const options = {
           voice: "tr",
-          style: $('input[name="render-style"]:checked').value,
+          style: "capsule",
           video_design: $("#video-design").value,
           ...($("#video-design").value === "host"
             ? { host_look: $("#host-look").value, host_name: $("#host-name").value.trim(),

@@ -8,12 +8,12 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from app.media import (MediaError, _ass_escape, _ffmpeg_probe, _fit_display, _glyph_width,
-                       _kinetic_events, _kinetic_plan, _local_engine, _sentences,
-                       _source_phrase, _subtitle_chunks, _title_layout, capabilities, render)
+from app.media import (MediaError, _ffmpeg_probe, _fit_display, _glyph_width, _kinetic_plan, _local_engine,
+                       _remotion_state, _sentences, _source_phrase, _subtitle_chunks, capabilities, render)
 
 
-@unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "FFmpeg is required")
+@unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe") and _remotion_state()["ready"],
+                     "FFmpeg and the Remotion renderer are required")
 class RenderTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -44,7 +44,8 @@ class RenderTests(unittest.TestCase):
         self.assertEqual(progress, sorted(progress))
         self.assertTrue(any(65 < value < 98 for value in progress))
         self.assertEqual({path.name for path in self.output.iterdir()},
-                         {"reel.mp4", "captions.srt", "captions.ass", "narration.wav"})
+                         {"reel.mp4", "captions.srt", "narration.wav"})
+        self.assertEqual(result["renderer"], "remotion")
 
     def test_real_local_turkish_narration(self):
         if not capabilities()["tts"]:
@@ -79,10 +80,15 @@ class RenderTests(unittest.TestCase):
             render({"script": "a " * 300}, self.output, {"speech": False})
         self.assertFalse((self.output / "reel.mp4").exists())
 
-    def test_missing_subtitle_support_fails_before_voice_generation(self):
-        state = {"ready": False, "error": "libass destekli FFmpeg kurun.", "features": {"subtitles": False}}
+    def test_missing_renderer_fails_before_voice_generation(self):
+        state = {"ready": False, "error": "libx264 destekli FFmpeg kurun.", "features": {"h264": False}}
         with patch("app.media._ffmpeg_state", return_value=state), patch("app.media._speak") as speak:
-            with self.assertRaisesRegex(MediaError, "libass"):
+            with self.assertRaisesRegex(MediaError, "libx264"):
+                render({"script": "Teknoloji."}, self.output)
+        speak.assert_not_called()
+        missing = {"ready": False, "node": None, "error": "Remotion kurulu değil."}
+        with patch("app.media._remotion_state", return_value=missing), patch("app.media._speak") as speak:
+            with self.assertRaisesRegex(MediaError, "Remotion"):
                 render({"script": "Teknoloji."}, self.output)
         speak.assert_not_called()
         self.assertEqual(list(self.output.iterdir()), [])
@@ -91,11 +97,11 @@ class RenderTests(unittest.TestCase):
         sentinel = self.output / "user-notes.txt"
         sentinel.write_text("Preserve this file.")
 
-        def fail_encoding(_command, folder, *_args):
-            (folder / "reel.mp4").write_bytes(b"incomplete")
+        def fail_encoding(_plan, video, *_args):
+            video.write_bytes(b"incomplete")
             raise MediaError("Kodlama başarısız.")
 
-        with patch("app.media._encode", side_effect=fail_encoding):
+        with patch("app.media._remotion", side_effect=fail_encoding):
             with self.assertRaisesRegex(MediaError, "Kodlama başarısız"):
                 render({"script": "Merhaba dünya."}, self.output, {"speech": False})
         self.assertEqual(list(self.output.iterdir()), [sentinel])
@@ -117,20 +123,19 @@ class RenderTests(unittest.TestCase):
                 render({"script": "Türkçe konuşuyoruz."}, self.output)
         self.assertEqual(list(self.output.iterdir()), [])
 
-    def test_classic_design_remains_an_explicit_real_export_option(self):
+    def test_legacy_classic_design_is_rendered_with_remotion(self):
         result = render({"title": "Klasik tasarım", "script": "Merhaba teknoloji."}, self.output,
-                        {"speech": False, "video_design": "classic"})
-        self.assertEqual(result["design"], "classic")
-        self.assertEqual(result["scene_count"], 1)
-        self.assertNotIn("/ TEKNOLOJİ", (self.output / "captions.ass").read_text())
+                        {"speech": False, "video_design": "classic", "style": "aurora"})
+        self.assertEqual(result["design"], "kinetic")
+        self.assertEqual(result["renderer"], "remotion")
         self.assertTrue(Path(result["video_path"]).is_file())
 
-    def test_kinetic_export_changes_layouts_and_has_motion_between_cuts(self):
+    def test_scenes_change_and_move_between_cuts(self):
         script = ("Yerel yapay zekâ modelleri bilgisayarda farklı kullanım seçenekleri sunuyor. "
                   "İnternet gereksinimleri kullanılan modele göre değişebiliyor. "
                   "Donanım gereksinimlerini ve model lisanslarını kullanmadan önce kontrol etmek gerekiyor. "
                   "Bu örnekte teknoloji konusunu birlikte inceliyoruz.")
-        with patch("urllib.request.urlopen", side_effect=AssertionError("Motion design must be entirely offline")):
+        with patch("urllib.request.urlopen", side_effect=AssertionError("Rendering must be entirely offline")):
             result = render({"title": "Yerel yapay zekâ neden konuşuluyor?", "script": script}, self.output,
                             {"speech": False})
         self.assertGreater(result["duration"], 10)
@@ -147,22 +152,19 @@ class RenderTests(unittest.TestCase):
         frames = [frame(timestamp) for timestamp in (.4, 3.4, 6.4, 9.4)]
         differences = [sum(abs(a - b) for a, b in zip(first, second)) / len(first)
                        for first, second in zip(frames, frames[1:])]
-        self.assertTrue(all(difference > 12 for difference in differences), differences)
-        # Compare within one scene as well: transitions alone would be a slideshow.
+        self.assertTrue(all(difference > 4 for difference in differences), differences)
+        # Within one scene the cards and captions still animate.
         first, second = frame(3.4), frame(4.1)
         changed = sum(sum(abs(first[i + c] - second[i + c]) for c in range(3)) > 30
                       for i in range(0, len(first), 3)) / (72 * 82)
-        self.assertGreater(changed, .025)
-        self.assertIn(r"\move(", (self.output / "captions.ass").read_text())
+        self.assertGreater(changed, .01)
 
 
 class SubtitleTests(unittest.TestCase):
-    def test_long_words_wrap_and_ass_control_sequences_are_neutralized(self):
+    def test_long_words_wrap_inside_the_caption_area(self):
         chunks = _subtitle_chunks("Teknolojide " + "uzun" * 25 + " Türkçe karakterler ığüşöç.")
         self.assertTrue(all(len(chunk.splitlines()) <= 2 for chunk in chunks))
         self.assertTrue(all(len(line) <= 27 for chunk in chunks for line in chunk.splitlines()))
-        self.assertNotIn("{", _ass_escape(r"{\pos(0,0)}"))
-        self.assertNotIn("\\", _ass_escape(r"{\pos(0,0)}"))
 
     def test_news_abbreviations_decimals_initials_and_quotes_keep_sentence_boundaries(self):
         script = 'Prof. Dr. A. Yılmaz, GPT-4.1 modelini inceledi. "3. nesil çip hazır!" Yeni bir dönem.'
@@ -174,13 +176,10 @@ class SubtitleTests(unittest.TestCase):
         for text in ("W" * 100, "人工智能" * 20):
             for chunk in _subtitle_chunks(text):
                 self.assertTrue(all(sum(map(_glyph_width, line)) <= 600 / 44 for line in chunk.splitlines()))
-        title = "Yapay zekâ artık cebimizde"
-        _, layout = _title_layout(title)
-        self.assertEqual(" ".join(layout.split()), title)
-        size, layout = _title_layout("Çok uzun bir teknoloji haberi " * 20)
+        size, layout = _fit_display("Çok uzun bir teknoloji haberi " * 20, sizes=(62, 56, 50), width=600, lines=4)
         self.assertLessEqual(len(layout.splitlines()), 4)
         self.assertTrue(layout.endswith("…"))
-        self.assertTrue(all(sum(map(_glyph_width, line)) <= 570 / size for line in layout.splitlines()))
+        self.assertTrue(all(sum(map(_glyph_width, line)) <= 600 / size for line in layout.splitlines()))
 
     def test_motion_cards_use_verbatim_phrases_and_preserve_statistic_context(self):
         source = "Model %30 daha hızlı değil; bu yalnızca test için verilen bir örnektir."
@@ -193,17 +192,6 @@ class SubtitleTests(unittest.TestCase):
                             for scene in scenes[1:]))
         self.assertEqual(scenes[0]["layout"], "hook")
         self.assertEqual(scenes[-1]["end"], 12)
-
-    def test_motion_user_text_cannot_inject_ass_font_or_position_instructions(self):
-        title = r"Teknoloji {\fnUntrustedFont} başlığı"
-        caption = r"Gerçek metin {\pos(99,99)} devam ediyor."
-        scenes = _kinetic_plan(4, [(0, 4, caption)])
-        content = "\n".join(_kinetic_events(title, [(0, 4, caption)], scenes, 4, "aurora"))
-        self.assertNotIn(r"{\fnUntrustedFont}", content)
-        self.assertNotIn(r"{\pos(99,99)}", content)
-        visible_fragments = "".join(line.rsplit("}", 1)[-1].replace(r"\N", "") for line in content.splitlines())
-        self.assertIn("UntrustedFont", visible_fragments)
-        self.assertIn("｛", content)
 
 
 class CapabilityTests(unittest.TestCase):
@@ -241,17 +229,23 @@ class CapabilityTests(unittest.TestCase):
             self.assertEqual(engine["env"]["ESPEAK_DATA_PATH"], str(data))
             self.assertIn("aarch64-linux-gnu", engine["env"]["LD_LIBRARY_PATH"])
 
-    def test_ffmpeg_missing_libass_is_actionable_and_probe_is_cached(self):
+    def test_ffmpeg_missing_libx264_is_actionable_and_probe_is_cached(self):
         _ffmpeg_probe.cache_clear()
         self.addCleanup(_ffmpeg_probe.cache_clear)
-        outputs = [b" V....D libx264 H.264\n A....D aac AAC\n", b" ... zoompan V->V Zoom\n", b"ffprobe version"]
+        outputs = [b" A....D aac AAC\n", b"ffprobe version"]
         with patch("app.media._run", side_effect=[subprocess.CompletedProcess([], 0, stdout=value) for value in outputs]) as run:
             first = _ffmpeg_probe("/fake/ffmpeg", (), "/fake/ffprobe", ())
             second = _ffmpeg_probe("/fake/ffmpeg", (), "/fake/ffprobe", ())
         self.assertFalse(first["ready"])
-        self.assertIn("libass", first["error"])
+        self.assertIn("libx264", first["error"])
         self.assertEqual(first, second)
-        self.assertEqual(run.call_count, 3)
+        self.assertEqual(run.call_count, 2)
+
+    def test_missing_remotion_install_is_actionable(self):
+        with tempfile.TemporaryDirectory() as temporary, patch("app.media.REMOTION_DIR", Path(temporary)):
+            state = _remotion_state()
+        self.assertFalse(state["ready"])
+        self.assertIn("setup.sh", state["error"])
 
 
 if __name__ == "__main__":

@@ -14,3 +14,5 @@ build/
 coverage/
 .coverage
 artifacts/
+remotion/node_modules/
+remotion/.bundle/

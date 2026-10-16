@@ -94,3 +94,10 @@ videolarda zoom u direk yapma tipografi haritası falan oluştursn metni inceles
 
 - Vega'ya aynalı kayak gözlüğü.
 - Metin kelime kelime puanlanır (sayı, marka, dönüş kelimesi, güçlü ifade, soru/ünlem); zoom ve büyük altyazı yalnızca seçilen birkaç anda.
+
+## Remotion ve Apify
+
+videoyu daha iyi nasıl yaparız diye internette biraz araştırma yaptım apify ve https://github.com/remotion-dev/remotion bunu buldum bunları projeye entegre et
+
+- Seçim: Tamamen Remotion'a geçiş (bireysel lisans). Video planı Python'da, çizim Remotion'da, ses FFmpeg ile.
+- Apify: sosyal trendler ve haber görselleri (token yalnızca yerel .env içinde).

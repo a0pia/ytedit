@@ -190,7 +190,7 @@ class UploadedAudioTests(unittest.TestCase):
                          "audio_captions": captions, "audio_timing_mode": "manual"}, self.root / "manual",
                         {"tts_provider": "uploaded", "speech": True, "video_design": "classic"})
         self.assertEqual(result["subtitle_timing"], "manual")
-        self.assertEqual(result["design"], "classic")
+        self.assertEqual(result["design"], "kinetic")  # Legacy "classic" now renders with Remotion.
         self.assertIn("00:00:00,400 --> 00:00:01,200", Path(result["subtitle_path"]).read_text())
         self.assertIn("00:00:01,500 --> 00:00:02,100", Path(result["subtitle_path"]).read_text())
 

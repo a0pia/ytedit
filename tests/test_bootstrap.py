@@ -15,6 +15,7 @@ pytestmark = pytest.mark.skipif(not Path('/bin/bash').exists(), reason='Unix lau
 def bootstrap(tmp_path, monkeypatch):
     (tmp_path / 'scripts').mkdir()
     (tmp_path / 'bin').mkdir()
+    (tmp_path / 'remotion').mkdir()
     for name in ('setup.sh', 'Start-Hype-Studio.command', 'start.sh'):
         shutil.copyfile(ROOT / 'scripts' / name, tmp_path / 'scripts' / name)
     (tmp_path / '.env.example').write_text('HYPE_PORT=8787\n')
@@ -61,6 +62,8 @@ def test_old_system_python_falls_back_to_supported_versioned_python(bootstrap):
     assert f'old-python:{root}/bin/python3' in calls
     assert f'selected-python:{root}/bin/python3.12 -m venv' in calls
     assert (root / '.venv/bin/python').is_file()
+    # The app and the Remotion renderer each get a locked npm install.
+    assert calls.count('npm:ci --no-audit --no-fund') == 2
 
 
 def test_explicit_unsupported_python_fails_without_installing(bootstrap):

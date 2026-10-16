@@ -9,7 +9,7 @@ from unittest.mock import patch
 import wave
 
 from app import presenter
-from app.media import MediaError, _host_plan, _kinetic_events, _kinetic_plan, render
+from app.media import MediaError, _host_plan, _kinetic_plan, _remotion_state, render
 
 
 SPANS = [(0, 3, "Merhaba teknoloji dünyası!"), (3, 7, "Bu hafta ne oldu?"),
@@ -69,15 +69,20 @@ class RigTests(unittest.TestCase):
                 audio.writeframes(b"\0\0" * 48000)
             self.assertIsNone(presenter.speech_levels(silent, 2))
 
-    def test_user_text_cannot_inject_ass_into_host_name_or_bubbles(self):
+    def test_picture_in_picture_frames_are_masked_and_names_stay_plain_text(self):
+        from app import capsule
         scenes = _host_plan(_kinetic_plan(36, LONG, 2.8))
-        host = {"look": "nova", "name": r"{\pos(1,1)}Nova", "spans": LONG, "levels": None}
-        content = "\n".join(_kinetic_events("Başlık", [(0, 36, "Metin")], scenes, 36, "aurora", host))
-        self.assertNotIn(r"{\pos(1,1)}", content)
-        self.assertIn(r"\clip(", content)  # The PiP badge masks the puppet.
+        host = {"look": "nova", "name": r"<b>Nova</b>", "spans": LONG, "levels": None}
+        plan = capsule.build_plan("Başlık", [(0, 36, "Metin")], scenes, 36, host)
+        # Text is passed as data and rendered by React, which escapes it.
+        self.assertEqual(plan["host"]["name"], "<B>NOVA</B>")
+        frames = [frame for frame in plan["host"]["track"]["frames"] if frame]
+        self.assertTrue(any(frame["clip"] for frame in frames))
+        self.assertTrue(all(path.startswith("M ") for path in plan["host"]["track"]["paths"]))
 
 
-@unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "FFmpeg is required")
+@unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe") and _remotion_state()["ready"],
+                     "FFmpeg and Remotion are required")
 class HostRenderTests(unittest.TestCase):
     def test_real_hosted_video_animates_the_presenter(self):
         script = ("Yerel yapay zekâ modelleri bilgisayarda farklı kullanım seçenekleri sunuyor. "
@@ -88,7 +93,7 @@ class HostRenderTests(unittest.TestCase):
             result = render({"title": "Yerel yapay zekâ", "script": script}, Path(temporary),
                             {"speech": False, "video_design": "host", "host_look": "kaan", "host_name": "Deniz"})
             self.assertEqual((result["design"], result["host_look"], result["host_name"]), ("host", "kaan", "Deniz"))
-            self.assertIn("DENİZ ANLATIYOR", Path(temporary, "captions.ass").read_text())
+            self.assertEqual(result["renderer"], "remotion")
 
             def frame(timestamp):
                 return subprocess.run(["ffmpeg", "-nostdin", "-loglevel", "error", "-ss", str(timestamp),
@@ -115,28 +120,19 @@ if __name__ == "__main__":
 
 
 class CapsuleThemeTests(unittest.TestCase):
-    def test_capsule_theme_draws_the_dashboard_chassis_and_escapes_text(self):
+    def test_capsule_plan_has_scenes_captions_and_labels(self):
         from app import capsule
         scenes = _host_plan(_kinetic_plan(36, LONG, 2.8))
-        host = {"look": "kuzgun", "name": r"K{\b1}uzgun", "spans": LONG, "levels": None}
-        world, hud, overlays = capsule.events(r"Başlık {\fnX}", [(0, 36, "Metin bir iki")], scenes, 36, host)
-        self.assertEqual(overlays, [])
-        self.assertIn("Aopia", "\n".join(hud))
-        content = "\n".join(world + hud)
-        self.assertIn(r"\clip(", "\n".join(world))
-        self.assertIn("Anahtar kelime", content)
-        # Burned-in captions: one event per spoken word, the active word lit in lime
-        # and the words still to come laid out but invisible.
-        captions = [line for line in hud if r"\bord6" in line]
-        self.assertEqual(len(captions), 3)
-        self.assertTrue(all("METİN" in line and "İKİ" in line for line in captions))
-        self.assertIn(r"{\alpha&HFF&}İKİ", captions[0])
-        self.assertIn(r"\1c&H3AF2D9&", captions[2])  # Kapsül pack highlight.
-        self.assertIn("Teknoloji gündemi", content)
-        self.assertIn(r"\1c&H3AF2D9&", content)  # Lime accent in ASS BGR order.
-        self.assertNotIn(r"{\fnX}", content)
-        self.assertNotIn(r"{\b1}", content)
-        self.assertIn("Son söz", content)
+        host = {"look": "kuzgun", "name": "Kuzgun", "spans": LONG, "levels": None}
+        plan = capsule.build_plan("Başlık", [(0, 36, "Metin bir iki")], scenes, 36, host)
+        self.assertEqual(plan["brand"], "Aopia")
+        self.assertIn("Anahtar kelime", [scene["label"] for scene in plan["scenes"]])
+        self.assertEqual(plan["scenes"][-1]["label"], "Son söz")
+        # Captions carry per-word timing in Turkish upper case for the kinetic burst.
+        words = [word["text"] for burst in plan["captions"] for word in burst["words"]]
+        self.assertEqual(words, ["METİN", "BİR", "İKİ"])
+        self.assertTrue(all(word["start"] < word["end"] for burst in plan["captions"] for word in burst["words"]))
+        self.assertEqual(plan["pack"]["pop"], "D9F23A")
 
     def test_volt_mascot_has_led_eyes_antenna_and_blinks(self):
         look = presenter.LOOKS["volt"]
@@ -146,7 +142,7 @@ class CapsuleThemeTests(unittest.TestCase):
         closed = presenter.head_parts(look, "D9F23A", {**pose, "open": 0.0})
         self.assertNotIn("led-shine", [name for name, _c, _p in closed])
 
-    @unittest.skipUnless(shutil.which("ffmpeg"), "FFmpeg is required")
+    @unittest.skipUnless(shutil.which("ffmpeg") and _remotion_state()["ready"], "FFmpeg and Remotion are required")
     def test_real_capsule_render(self):
         with tempfile.TemporaryDirectory() as temporary:
             result = render({"title": "Kapsül", "script": "Merhaba teknoloji. Bu bir deneme mi? Evet."},
@@ -159,15 +155,15 @@ class CapsuleThemeTests(unittest.TestCase):
 
 
 class AttentionTests(unittest.TestCase):
-    def test_camera_stays_still_except_at_emphasis_moments(self):
+    def test_camera_moves_only_at_emphasis_moments(self):
         from app import capsule
-        scenes = _host_plan(_kinetic_plan(36, LONG, 2.8))
-        self.assertEqual(capsule.camera(scenes, 36, [])[0], "1.0")
-        moments = [{"word": "40", "start": 7.3, "end": 7.7, "score": 3.0, "reason": "sayı"}]
-        zoom, x, y = capsule.camera(scenes, 36, moments)
-        self.assertEqual(zoom.count("(3-2*"), 1)  # One smooth punch-in, no per-scene zoom.
-        self.assertIn("it-7.020", zoom)  # Starts easing just before the word is spoken.
-        self.assertTrue(x.startswith("max(0,min(iw-iw/zoom,") and y.startswith("max(0,min(ih-ih/zoom,"))
+        calm = [(i * 3.0, i * 3.0 + 3, "Sakin bir cümle burada.") for i in range(6)]
+        scenes = _host_plan(_kinetic_plan(18, calm, 2.8))
+        self.assertEqual(capsule.build_plan("Başlık", calm, scenes, 18, None)["camera"], [])
+        stressed = calm[:3] + [(9, 12, "Model yüzde 40 daha hızlı.")] + calm[4:]
+        plan = capsule.build_plan("Başlık", stressed, scenes, 18, None)
+        self.assertEqual([moment["word"] for moment in plan["camera"]], ["40"])
+        self.assertLessEqual(plan["camera"][0]["strength"], .2)
 
     def test_keyword_is_a_verbatim_word(self):
         from app import capsule
@@ -253,13 +249,11 @@ class BrandTests(unittest.TestCase):
         scenes = capsule.perches(_host_plan(_kinetic_plan(12, spans, 2.8)))
         host = {"look": "kuzgun", "name": "Kuzgun", "spans": spans, "levels": None}
         brand = {"slug": "claude", "name": "Claude", "stems": ("claude",), "logo": None}
-        world, _hud, overlays = capsule.events("Claude", [(0, 12, "Metin")], scenes, 12, host, "anthropic", brand)
-        self.assertEqual(overlays, [])
-        self.assertTrue(any(line.endswith("}Claude") for line in world))
-        brand["logo"] = "/tmp/claude.png"
-        _world, _hud, overlays = capsule.events("Claude", [(0, 12, "Metin")], scenes, 12, host, "anthropic", brand)
-        self.assertGreaterEqual(len(overlays), 1)
-        self.assertEqual(overlays[0]["size"], 150 - 2 * round(150 * .12))
+        plan = capsule.build_plan("Claude", [(0, 12, "Metin")], scenes, 12, host, "anthropic", brand)
+        self.assertEqual(plan["brandMark"], {"name": "Claude", "logo": None})
+        here = [scene["brandHere"] for scene in plan["scenes"]]
+        self.assertTrue(here[0])  # The opening always shows the brand.
+        self.assertIn(False, here)  # Scenes that don't mention it stay clean.
 
 
 class AndroidTests(unittest.TestCase):
@@ -278,9 +272,11 @@ class AndroidTests(unittest.TestCase):
 
     def test_neon_parts_glow(self):
         scenes = _host_plan(_kinetic_plan(6, SPANS[:2], 2.8))
-        events = presenter.puppet_events(look_id="vega", accent_for=lambda _i: "2EE6FF", spans=SPANS, scenes=scenes,
-                                         duration=6, levels=None, seed="s")
-        self.assertTrue(any(r"\blur" in line for line in events))
+        track = presenter.svg_track(look_id="vega", accent_for=lambda _i: "2EE6FF", spans=SPANS, scenes=scenes,
+                                    duration=6, levels=None, seed="s")
+        parts = [part for frame in track["frames"] if frame for group in frame["groups"] for part in group["parts"]]
+        self.assertTrue(any(part[3] for part in parts))
+        self.assertEqual(len(track["frames"]), 6 * 24)
 
     def test_cyber_packs_are_dark_and_readable(self):
         from app import palettes
@@ -312,9 +308,10 @@ class TypographyMapTests(unittest.TestCase):
         self.assertTrue(all(b["start"] - a["start"] >= 3.5 for a, b in zip(moments, moments[1:])))
         self.assertEqual(capsule.emphasis_moments([(0, 4, "Sakin bir cümle burada")], 4), [])
 
-    def test_stressed_caption_word_is_enlarged(self):
+    def test_stressed_caption_word_is_marked(self):
         from app import capsule
         segments = [(0, 2, "Giriş cümlesi burada."), (2, 5, "Model yüzde 40 daha hızlı.")]
         scenes = _host_plan(_kinetic_plan(5, segments, 2.8))
-        _world, hud, _overlays = capsule.events("Başlık", segments, scenes, 5, None)
-        self.assertTrue(any(r"\fscx175" in line and "40" in line for line in hud))
+        plan = capsule.build_plan("Başlık", segments, scenes, 5, None)
+        stressed = [word["text"] for burst in plan["captions"] for word in burst["words"] if word["stressed"]]
+        self.assertEqual(stressed, ["40"])

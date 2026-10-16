@@ -52,6 +52,9 @@ if ! .venv/bin/python -c 'import sys; sys.exit(0 if sys.version_info >= (3, 11) 
 fi
 .venv/bin/python -m pip install --disable-pip-version-check -r requirements.txt
 npm ci --no-audit --no-fund
+# Videos are rendered by the Remotion composition in remotion/ (Node + headless Chromium).
+# Remotion downloads its own headless Chromium on the first render if none is configured.
+(cd remotion && npm ci --no-audit --no-fund)
 if [[ -n "${HTTPS_PROXY:-${HTTP_PROXY:-}}" ]]; then
   ELECTRON_GET_USE_PROXY=1 node node_modules/electron/install.js
 else

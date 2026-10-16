@@ -693,72 +693,67 @@ def placement(pose: dict, placements: dict | None = None) -> tuple[float, float,
     return x, y + entrance, scale
 
 
-def _cs(seconds: float) -> int:
-    return round(seconds * 100)
+def svg_path(drawing: str) -> str:
+    """Convert our ASS-style drawing commands (m/l/b) to an SVG path."""
+    return drawing.replace("m ", "M ").replace("l ", "L ").replace("b ", "C ")
 
 
-def _stamp(cs: int) -> str:
-    whole, fraction = divmod(cs, 100)
-    minutes, second = divmod(whole, 60)
-    hour, minute = divmod(minutes, 60)
-    return f"{hour}:{minute:02d}:{second:02d}.{fraction:02d}"
+def svg_track(*, look_id: str, accent_for, spans, scenes, duration: float, levels: list[float] | None, seed: str,
+              placements: dict | None = None, pip_circle: tuple | None = None, fps: int = 24) -> dict:
+    """The rig sampled per video frame for the Remotion composition.
 
-
-def puppet_events(*, look_id: str, accent_for, spans, scenes, duration: float,
-                  levels: list[float] | None, seed: str, layer: int = 4,
-                  placements: dict | None = None, pip_circle: tuple | None = None) -> list[str]:
-    """ASS events drawing the rig at FPS, interpolating translation between frames."""
+    Paths are de-duplicated into ``paths``; each frame lists groups (body, head)
+    with an SVG transform in local character coordinates and parts as
+    [path index, fill, opacity, glow, stroke, clip]. ``clip`` marks frames shown
+    inside the round picture-in-picture badge.
+    """
     look = LOOKS[look_id]
     roam = bool(look.get("roam")) and any(scene.get("perch") for scene in scenes)
     rig = Rig(seed, spans, scenes, duration, levels, roam=roam)
-    glow = look.get("glow", set())
     feet_x, feet_y = look.get("feet", (200.0, 560.0))
     pivot = look.get("pivot", PIVOT)
+    glow = look.get("glow", set())
+    outline = look.get("outline")
+    outlined = look.get("outlined", set())
+    paths: list[str] = []
+    index_of: dict[str, int] = {}
+    frames = []
 
-    def place(pose):
-        if roam and "roam" in pose:
-            fx, fy, fs = pose["roam"]
-            return fx - feet_x * fs, fy - feet_y * fs, fs
-        return placement(pose, placements)
-    total = _cs(duration)
-    cuts = {_cs(scene["start"]) for scene in scenes} | {total}
-    marks = sorted({round(i * 100 / FPS) for i in range(math.ceil(duration * FPS) + 1)} | cuts)
-    marks = [mark for mark in marks if 0 <= mark <= total]
-    events = []
-    cx, cy, radius = pip_circle or PIP_CIRCLE
-    pip_clip = rf"\clip({screen_circle(cx, cy, radius - 6)})"
-    for a, b in zip(marks, marks[1:]):
-        if b <= a:
-            continue
-        t0, t1 = a / 100, b / 100 - .001
-        pose = rig.pose(t0)
-        if rig.scene_index(t0) != rig.scene_index(t1):
-            t1 = t0
+    def path_id(drawing: str) -> int:
+        converted = svg_path(drawing)
+        if converted not in index_of:
+            index_of[converted] = len(paths)
+            paths.append(converted)
+        return index_of[converted]
+
+    for number in range(max(1, math.ceil(duration * fps))):
+        t = number / fps
+        pose = rig.pose(t)
         if pose["mode"] == "off" and not (roam and "roam" in pose):
+            frames.append(None)
             continue
-        x0, y0, scale = place(pose)
-        x1, y1, _ = place(rig.pose(t1))
+        if roam and "roam" in pose:
+            fx, fy, scale = pose["roam"]
+            x0, y0 = fx - feet_x * scale, fy - feet_y * scale
+        else:
+            x0, y0, scale = placement(pose, placements)
+        accent = accent_for(rig.scene_index(t))
         body_y = pose["bob"] * .5 * scale
         head_y = pose["bob"] * scale + pose["head_dy"] * scale
-        accent = accent_for(rig.scene_index(t0))
-        clip = pip_clip if pose["mode"] == "pip" and not roam else ""
-        start, end = _stamp(a), _stamp(b)
-        pivot_x, pivot_y = x0 + pivot[0] * scale, y0 + head_y + pivot[1] * scale
-        feet = (x0 + feet_x * scale, y0 + feet_y * scale)
-        common = rf"\bord0\shad0\fscx{_n(scale * 100)}\fscy{_n(scale * 100)}{clip}"
-        lean = rf"\org({_n(feet[0])},{_n(feet[1])})\frz{_n(pose['tilt'])}" if pose["tilt"] else ""
-        groups = ((body_parts(look, accent, pose), body_y, lean),
-                  (head_parts(look, accent, pose), head_y,
-                   rf"\org({_n(pivot_x)},{_n(pivot_y)})\frz{_n(pose['angle'] + pose['tilt'])}"))
-        for parts, offset, rotation in groups:
-            move = rf"\move({_n(x0)},{_n(y0 + offset)},{_n(x1)},{_n(y1 + offset)})"
-            for name, color, path in parts:
+        groups = []
+        for parts, offset, rotation in (
+                (body_parts(look, accent, pose), body_y,
+                 f"rotate({_n(-pose['tilt'])} {_n(feet_x)} {_n(feet_y)})" if pose["tilt"] else ""),
+                (head_parts(look, accent, pose), head_y,
+                 f"rotate({_n(-(pose['angle'] + pose['tilt']))} {_n(pivot[0])} {_n(pivot[1])})")):
+            items = []
+            for name, color, drawing in parts:
                 color, _, alpha = color.partition("&\\1a&H")
-                alpha_tag = rf"\1a&H{alpha}&" if alpha else ""
-                if name in glow:
-                    # Neon parts bloom slightly, like light on glass.
-                    alpha_tag += rf"\blur{_n(max(.8, 3 * scale))}"
-                rgb = "&H" + color[4:6] + color[2:4] + color[0:2] + "&"
-                events.append(f"Dialogue: {layer},{start},{end},Motion,,0,0,0,,"
-                              f"{{\\an7{move}{rotation}{common}\\1c{rgb}{alpha_tag}\\p1}}{path}{{\\p0}}")
-    return events
+                opacity = round(1 - int(alpha, 16) / 255, 3) if alpha else 1
+                stroke = outline if outline and name in outlined else ""
+                items.append([path_id(drawing), color, opacity, int(name in glow), stroke])
+            groups.append({"transform": f"translate({_n(x0)} {_n(y0 + offset)}) scale({_n(scale)}) {rotation}".strip(),
+                           "parts": items})
+        frames.append({"clip": pose["mode"] == "pip" and not roam, "groups": groups})
+    cx, cy, radius = pip_circle or PIP_CIRCLE
+    return {"fps": fps, "paths": paths, "frames": frames, "clip": [cx, cy, radius - 6]}

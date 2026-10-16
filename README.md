@@ -40,7 +40,7 @@ Bulut ortamının ağ izin listesi varsa haber yenilemek için `shiftdelete.net`
 
 1. Haberleri yenileyin ve bir teknoloji haberini seçin. Harici haberler için internet gerekir; kaynağı ve tarihi kontrol edin.
 2. Kısa video projesi oluşturun. Üretilen senaryoyu, başlığı ve açıklamayı düzenleyin; iddiaları kaynaklardan doğrulayın.
-3. Ücretsiz yerel seslendirmeyle videoyu oluşturun. FFmpeg özgün grafik arka planları, konuşma sesini ve senkron altyazıları tek MP4 dosyasında birleştirir.
+3. Ücretsiz yerel seslendirmeyle videoyu oluşturun. Remotion sahneleri, anlatıcıyı ve gömülü altyazıları çizer; FFmpeg konuşma sesini ve geçiş efektlerini ekleyip tek MP4 dosyası üretir.
 4. Önizlemeyi izleyin. Türkçe telaffuz, altyazı zamanlaması ve haber doğruluğunu gözden geçirip dosyayı indirin.
 5. YouTube hesabını isteğe bağlı bağlayın. Hazırladığınız videoyu onaylayıp yükleyin; yayın durumunu bilinçli seçin.
 
@@ -152,7 +152,7 @@ Alternatif olarak Ollama'nın resmi Mac uygulamasını kurup çalıştırabilir,
 
 ## Animasyonlu kısa videolar
 
-Varsayılan **Animasyonlu sahneler** tasarımı, ilk saniyelerde hareketli büyük bir giriş başlığıyla başlar. Ardından senaryodan alınan cümleler farklı renklerde, değişen yerleşimlerde ve hareketli grafiklerle gösterilir. Altyazılar seslendirmeye göre zamanlanır. Vurgu kartları senaryodaki ifadeleri kullanır; rastgele rakam veya haber iddiası üretilmez. İsterseniz **Klasik** tasarımı seçebilirsiniz.
+**Animasyonlu sahneler** (anlatıcısız) ve **Anlatıcılı** tasarımların ikisi de Kapsül temasıyla Remotion'da çizilir. Sahnelerde senaryodan alınan cümleler değişen yerleşimlerde ve hareketli kartlarla gösterilir; altyazılar seslendirmeye göre zamanlanır. Vurgu kartları senaryodaki ifadeleri kullanır; rastgele rakam veya haber iddiası üretilmez. Eski projelerdeki **Klasik** tasarım artık anlatıcısız animasyonlu sahnelerle üretilir.
 
 Bütün grafikler uygulama içinde üretilir. Bu özellik ücretli stok video, müzik veya görsel API'si kullanmaz; şimdilik dış video kliplerinin otomatik montajı değildir.
 
@@ -161,6 +161,14 @@ Bütün grafikler uygulama içinde üretilir. Bu özellik ücretli stok video, m
 [Gerçek animasyonlu örnek MP4](docs/animated-example.mp4)
 
 `tests/translation_ui_smoke.py`, ayrı bir yerel ve belirli yanıt veren model taklidiyle gerçek HTTP çeviri bağlantısını ve arayüzü doğrular. Bu, gerçek bir dil modelinin çeviri kalitesi testi değildir. Bulut makinesinde Ollama model indirme adresleri proxy403 ile engellendiği için gerçek model çalıştırılmadı; gerçek animasyonlu video ve Türkçe yerel seslendirme ise FFmpeg ile üretildi.
+
+## Video motoru: Remotion
+
+Videolar [Remotion](https://www.remotion.dev) ile üretilir: sahneler, kartlar, kamera hareketleri, anlatıcı ve kelime kelime altyazılar `remotion/src/Video.jsx` içindeki React bileşenleriyle çizilir. Python tarafı (`app/capsule.py`) seslendirmeden, altyazı zamanlarından ve senaryodan bir **video planı** (JSON) hazırlar; `remotion/render.mjs` bu planı sessiz bir MP4'e dönüştürür; FFmpeg son adımda anlatımı ve geçiş seslerini ekler. Fontlar (Space Grotesk, Inter; SIL Open Font License) npm paketlerinden gelir, çalışma sırasında internetten font indirilmez.
+
+- Kurulum: `./scripts/setup.sh` Remotion bağımlılıklarını da kurar (`cd remotion && npm ci`). Remotion ilk video üretiminde kendi başsız Chromium'unu bir kez indirir; isterseniz `.env` içinde `REMOTION_BROWSER` ile mevcut bir chrome-headless-shell yolunu gösterebilirsiniz.
+- Lisans: Remotion bireyler ve en fazla 3 kişilik şirketler için ticari kullanım dahil ücretsizdir; 4 ve daha fazla kişilik ekipler şirket lisansı almalıdır. Ayrıntılar: [remotion.dev/license](https://remotion.dev/license).
+- Çıktılar: `reel.mp4`, `captions.srt` ve `narration.wav`. Eski ASS altyazı dosyası artık üretilmez.
 
 ## Kapsül teması ve Volt
 

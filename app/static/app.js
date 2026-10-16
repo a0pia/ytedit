@@ -1352,7 +1352,7 @@
     });
     $("#editor-original").hidden = !original.childElementCount;
     $("#video-design").value = project.render_options?.video_design || project.design || "host";
-    $("#host-look").value = project.render_options?.host_look || "kuzgun";
+    $("#host-look").value = project.render_options?.host_look || "vega";
     $("#render-sfx").checked = project.render_options?.sfx !== false;
     $("#render-palette").value = project.render_options?.palette || "auto";
     const savedStyle = project.render_options?.style || "capsule";

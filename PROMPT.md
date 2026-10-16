@@ -78,3 +78,10 @@ birde alt yazı kısmını beğenmedim altyazıyı videoya gömerek yap daha bö
 - Sol üst marka: Aopia.
 - Renk paketleri: Pinterest 2026, WGSN 2026, theme-factory temaları, marka paketleri; habere göre otomatik.
 - Marka logoları kullanıcı tarafından yüklenir; videoda giriş ve markanın geçtiği sahnelerde görünür.
+
+## Siber anlatıcı ve koyu tema
+
+kedi olmamış daha siber bir şey yap böyle teknoloji ile ilgili bir kanal olacağı için yaş kitlesi büyük olacak
+
+- Seçim: Android spiker (Vega) + koyu siber tema.
+- Otomatik palet koyu siber paketlerden; haberde marka varsa vurgu markanın rengi.

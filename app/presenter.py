@@ -27,6 +27,13 @@ PIVOT = (200.0, 460.0)  # Neck pivot inside the 400x560 local character frame.
 MAX_NAME = 18
 
 LOOKS = {
+    # Vega, the default host: a sleek android news anchor for a grown-up tech
+    # audience. Matte metal face, a dark visor with glowing eyes, a light-bar mouth
+    # that becomes a voice equalizer, ear modules and circuit lines that glow in
+    # the scene's accent colour.
+    "vega": {"label": "Vega", "kind": "android", "skin": "D3DAE3", "shade": "A9B3C1", "hair": "6B7686",
+             "hairstyle": "none", "glasses": False, "beard": False, "hoodie": "1B2433",
+             "glow": {"eyes", "mouth-eq", "circuits", "core", "ear-lights", "temple"}},
     # Kuzgun, the default host: a glossy raven whose beak is the mouth. Spiky crown
     # feathers, a lime-ringed eye and a lime scarf make the silhouette iconic.
     # It roams like a real bird: flies between cuts, perches on cards and buttons,
@@ -138,7 +145,85 @@ def _mouth(pose) -> list[tuple[str, str, str]]:
     return parts
 
 
+def _stroke(points, width):
+    """A polyline as a closed polygon, for circuit traces and seams."""
+    left, right = [], []
+    for index, (x, y) in enumerate(points):
+        ax, ay = points[max(0, index - 1)]
+        bx, by = points[min(len(points) - 1, index + 1)]
+        dx, dy = bx - ax, by - ay
+        length = math.hypot(dx, dy) or 1
+        nx, ny = -dy / length * width / 2, dx / length * width / 2
+        left.append((x + nx, y + ny))
+        right.append((x - nx, y - ny))
+    return _polygon(left + right[::-1])
+
+
+def android_body_parts(look: dict, accent: str, pose: dict) -> list[tuple[str, str, str]]:
+    suit, plate = look["hoodie"], "2A3446"
+    level = pose.get("level", 0.0)
+    return [
+        ("torso", suit, "m 20 560 b 24 480 90 440 160 430 l 240 430 b 310 440 376 480 380 560 l 20 560"),
+        ("shoulders", plate, "m 34 540 b 44 476 100 448 156 440 l 146 474 b 104 482 72 506 62 540 l 34 540 "
+                             "m 366 540 b 356 476 300 448 244 440 l 254 474 b 296 482 328 506 338 540 l 366 540"),
+        ("neck", "5B6677", _rrect(168, 340, 64, 100, 22)),
+        ("neck-rings", "3A4455", _rrect(162, 368, 76, 9, 4) + " " + _rrect(162, 394, 76, 9, 4)),
+        ("collar", plate, _rrect(146, 414, 108, 36, 18)),
+        ("circuits", accent + ("&\\1a&H" + f"{round(120 - 100 * min(1.0, level)):02X}"),
+         " ".join(_stroke(points, 4) for points in (
+             [(170, 452), (170, 492), (130, 520), (96, 520)], [(230, 452), (230, 492), (270, 520), (304, 520)],
+             [(186, 452), (186, 540)], [(214, 452), (214, 540)]))),
+        ("core", accent, _ellipse(200, 500, 11, 11)),
+    ]
+
+
+def android_head_parts(look: dict, accent: str, pose: dict) -> list[tuple[str, str, str]]:
+    metal, shade, brow = look["skin"], look["shade"], look["hair"]
+    gx, gy = pose["gaze"]
+    level = pose.get("level", 0.0)
+    parts = [
+        ("ears", "2A3446", _ellipse(92, 262, 24, 36) + " " + _ellipse(308, 262, 24, 36)),
+        ("ear-lights", accent, _ellipse(88, 262, 7, 18) + " " + _ellipse(312, 262, 7, 18)),
+        ("head", metal, "m 200 108 b 278 108 312 170 312 250 b 312 332 276 394 200 402 "
+                        "b 124 394 88 332 88 250 b 88 170 122 108 200 108"),
+        ("head-shade", shade + "&\\1a&H50", "m 264 130 b 300 160 312 206 312 250 b 312 332 276 394 200 402 "
+                                             "b 250 380 286 330 288 252 b 290 196 282 160 264 130"),
+        ("forehead-glare", "FFFFFF&\\1a&HB0", "m 140 140 b 170 122 230 122 262 140 b 230 132 170 132 140 152"),
+        ("seams", "7C8796&\\1a&H70", " ".join([
+            _stroke([(112, 196), (150, 176), (200, 170), (250, 176), (288, 196)], 3),
+            _stroke([(122, 306), (146, 356), (176, 384)], 3), _stroke([(278, 306), (254, 356), (224, 384)], 3),
+            _stroke([(200, 112), (200, 168)], 3)])),
+        ("temple", accent + ("&\\1a&H" + f"{round(150 - 120 * min(1.0, level)):02X}"),
+         _stroke([(104, 214), (100, 248)], 5) + " " + _stroke([(296, 214), (300, 248)], 5)),
+        ("visor", "0B1220", _rrect(108, 226, 184, 60, 30)),
+        ("visor-glare", "FFFFFF&\\1a&HD0", "m 130 232 l 200 232 l 186 244 l 124 244"),
+    ]
+    openness = pose["open"]
+    height = max(1.6, 9 * openness)
+    parts.append(("eyes", accent, _ellipse(160 + gx, 256 + gy * .6, 24, height) + " " +
+                  _ellipse(240 + gx, 256 + gy * .6, 24, height)))
+    raise_, tilt = pose["brow"]
+    parts.append(("brows", brow, " ".join(_stroke(_rotated([(-24, 0), (24, 0)], (-tilt if right else tilt), x,
+                                                            212 - raise_ * 9), 6)
+                                         for x, right in ((160, False), (240, True)))))
+    parts.append(("mouth-slot", "1A2130", _rrect(156, 334, 88, 16, 8)))
+    kind, _w, h = pose["mouth"]
+    if kind == "X":
+        parts.append(("mouth-eq", accent + "&\\1a&H60", _rrect(166, 340, 68, 4, 2)))
+    else:
+        # The mouth is a voice equalizer: bar heights follow loudness and viseme.
+        bars = []
+        for index in range(7):
+            wobble = .45 + .55 * abs(math.sin(index * 1.9 + level * 11 + h))
+            bar = max(4.0, (h * 1.3 + 6) * wobble)
+            bars.append(_rrect(164 + index * 10, 342 - bar / 2, 6, bar, 3))
+        parts.append(("mouth-eq", accent, " ".join(bars)))
+    return parts
+
+
 def body_parts(look: dict, accent: str, pose: dict) -> list[tuple[str, str, str]]:
+    if look.get("kind") == "android":
+        return android_body_parts(look, accent, pose)
     if look.get("kind") == "raven":
         return raven_body_parts(look, accent, pose)
     wave_angle = pose.get("wave")
@@ -304,6 +389,8 @@ def raven_head_parts(look: dict, accent: str, pose: dict) -> list[tuple[str, str
 
 
 def head_parts(look: dict, accent: str, pose: dict) -> list[tuple[str, str, str]]:
+    if look.get("kind") == "android":
+        return android_head_parts(look, accent, pose)
     if look.get("kind") == "raven":
         return raven_head_parts(look, accent, pose)
     if look.get("kind") == "mascot":
@@ -613,6 +700,7 @@ def puppet_events(*, look_id: str, accent_for, spans, scenes, duration: float,
     look = LOOKS[look_id]
     roam = bool(look.get("roam")) and any(scene.get("perch") for scene in scenes)
     rig = Rig(seed, spans, scenes, duration, levels, roam=roam)
+    glow = look.get("glow", set())
     feet_x, feet_y = look.get("feet", (200.0, 560.0))
     pivot = look.get("pivot", PIVOT)
 
@@ -653,9 +741,12 @@ def puppet_events(*, look_id: str, accent_for, spans, scenes, duration: float,
                    rf"\org({_n(pivot_x)},{_n(pivot_y)})\frz{_n(pose['angle'] + pose['tilt'])}"))
         for parts, offset, rotation in groups:
             move = rf"\move({_n(x0)},{_n(y0 + offset)},{_n(x1)},{_n(y1 + offset)})"
-            for _name, color, path in parts:
+            for name, color, path in parts:
                 color, _, alpha = color.partition("&\\1a&H")
                 alpha_tag = rf"\1a&H{alpha}&" if alpha else ""
+                if name in glow:
+                    # Neon parts bloom slightly, like light on glass.
+                    alpha_tag += rf"\blur{_n(max(.8, 3 * scale))}"
                 rgb = "&H" + color[4:6] + color[2:4] + color[0:2] + "&"
                 events.append(f"Dialogue: {layer},{start},{end},Motion,,0,0,0,,"
                               f"{{\\an7{move}{rotation}{common}\\1c{rgb}{alpha_tag}\\p1}}{path}{{\\p0}}")

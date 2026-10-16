@@ -75,6 +75,8 @@ Karanlık sahne yoktur; kontrast koyu kartlar (`ink`) ile sağlanır.
 
 ## 6. Renk paketleri ve sahne renkleri
 
+**Varsayılan: koyu siber tema.** Otomatik seçimde video koyu siber paketle üretilir: neredeyse siyah paneller (`#0A0F1C` boşluk, `#062A30` koyu deniz, `#1A2130` grafit, `#07170F` matrix, `#0E1838` iyon), koyu cam kartlar ve her sahnede tek neon vurgu (camgöbeği `#2EE6FF`, nane `#7CFFB2`, kehribar `#FFB547`, matrix yeşili `#3DFF8B`, elektrik mavisi `#4D8BFF`). Pencerenin köşelerinde HUD köşe çerçeveleri, panelde ince tarama çizgileri vardır. Haberde marka geçiyorsa ana vurgu markanın rengidir (ör. Claude → kil `#D97757`). Mor/pembe ağırlıklı paket otomatik seçilmez. Aşağıdaki açık paketler panelden elle seçilebilir.
+
 Her video bir **renk paketi** kullanır. Paket; çerçeve rengi, vurgu ("pop") rengi ve sahne paletlerinden oluşur. Her kesmede panelin rengi değişir; iki renkli sahneden sonra paketin ana rengine dönülür (Ana → A → B → Ana → C → D → Ana …).
 
 **Otomatik seçim:** Haberde bir marka geçiyorsa (başlık iki kat sayılır) markanın paketi seçilir; ör. Claude/Anthropic haberinde krem–kil–kömür tonları. Marka yoksa güncel trend paketlerinden biri haberin başlığına göre sabit olarak seçilir. Panelden elle de seçilebilir.
@@ -134,27 +136,24 @@ Altyazı ayrı bir kutuda durmaz; videonun üzerine **gömülüdür**:
 6. **Ses ipuçları:** her kesmede whoosh, anahtar kelime ve ikinci kart gelişinde kısa "pop". Uygulama içinde sentezlenir, kapatılabilir.
 7. **Her hareket bir işe yarar:** hareket ya yeni bilgiyi ya da sahne değişimini işaret eder.
 
-## 10. Anlatıcı: Kuzgun (gerçekçi siluet)
+## 10. Anlatıcı: Vega (android spiker)
 
-Kuzgun, klasik kuş siluet setlerindeki gibi **tek renk, detaysız, gerçekçi bir silüettir** ve yandan görünür; baktığı yöne göre sağa ya da sola döner.
+Teknoloji kanalının yetişkin izleyicisine hitap eden varsayılan anlatıcı **Vega**'dır: bilim kurgu filmlerindeki gibi şık, insansı bir android haber spikeri.
 
-- **Anatomi:** Kalın, ucu kıvrık gaga; gaga kökünde burun tüyleri; boğazda sivri tüyler; uzun katlanmış kanat; kama biçimli kuyruk; tüneği kavrayan parmaklar.
-- **Pozlar:** dik duruş (tünekte), selamlarken kanatları açık duruş, uçuşta beş ayrık "parmak" tüylü açık kanatlar (kanat çırpar, arkadaki kanat da görünür), ötme (konuşurken baş yukarı kalkar, gaga açılır), gagalama (baş öne iner).
-- **Renk:** Açık panelde neredeyse siyah (`#17181C`), koyu panelde açık (`#EEECE6`). Tünekteyken altında yumuşak gölge.
+- **Yüz:** Mat metal (`#D3DAE3`) kafa, sağ yanda gölge, alında parlama, ince panel dikişleri.
+- **Vizör:** Gözleri kesen koyu cam bant; gözler sahnenin vurgu renginde parlayan badem ışıklardır. Kırpınca ışık ince bir çizgiye iner, bakış ışıkların kaymasıdır.
+- **Ağız = ses ekolayzırı:** Susarken sönük ince bir ışık çubuğu; konuşurken sesin şiddetine göre inip çıkan 7 ışık çubuğu.
+- **Işıklar:** Kulak modülleri, şakaklar, boyun altındaki devre çizgileri ve göğüs çekirdeği vurgu renginde parlar; şakak ve devre ışıkları sesle yoğunlaşır. Neon parçalar hafif ışık saçar (blur).
+- **Kaşlar:** Vizörün üstünde iki ince çubuk; sahne geçişlerinde ve sorularda kalkar.
+- **Gövde:** Koyu takım, omuz plakaları, segmentli mekanik boyun.
 
-### Gerçek kuş gibi davranış
+Vega girişte ve ara sahnelerde sahnenin ortasında büyük plan, diğer sahnelerde sağ alttaki yuvarlak ekranda (vurgu renginde halkalı) görünür; anahtar kelime sahnesinde ekrandan çekilir.
 
-- **Uçuş:** Her kesmede kanat çırparak bir yay çizip yeni yerine uçar (0,55 sn); uçarken uzak kanat da görünür, gövde gidiş yönüne eğilir.
-- **Konma noktaları:** Girişte ve ara sahnelerde sahnenin altında büyük plan; diğer sahnelerde "Gündemde" butonu, anahtar kelime kapsülü, alıntı işareti, kartın kenarı ve "+" butonu. Adım adım sahnesinde birinci karttan ikinci karta seker.
-- **Konunca:** Kanatlarını toplar, hafifçe yaylanır, başını öne indirip konduğu şeyi gagalar; altında yumuşak bir gölge oluşur.
-- **Beklerken:** Başını kuşlar gibi kısa, kesik hareketlerle çevirir; ara sıra yerinde zıplar; içeriğe doğru bakar.
-
-Alternatif karakterler (Volt, Nova, Kaan, Ece) aynı rig'i kullanır.
+Alternatif anlatıcılar: Kuzgun (kuzgun silueti), Volt, Nova, Kaan, Ece.
 
 ## 11. Yapılmaması gerekenler
 
-- Limon metni açık zemine yazmak.
-- Kartları keskin köşeli veya gölgesi ağır yapmak.
-- Senaryoda olmayan rakamları grafik etiketi olarak göstermek.
+- Neon vurgu rengini koyu zeminde uzun metin rengi olarak kullanmak; uzun metin açık renkte kalır.
 - Aynı anda ikiden fazla kartı ekranda tutmak; anlatıcıya yer kalmalı.
 - Aynı sahne düzenini art arda kullanmak veya bir sahneyi 4 saniyeden uzun tutmak.
+- Senaryoda olmayan rakamları grafik etiketi olarak göstermek.

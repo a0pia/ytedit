@@ -166,7 +166,7 @@ Bütün grafikler uygulama içinde üretilir. Bu özellik ücretli stok video, m
 
 Varsayılan video teması **Kapsül**'dür: kömür rengi çerçeve içinde açık sıcak gri bir panel, hap biçimli çipler, kırmızıdan yeşile geçen bir zaman çizelgesi, limon düğümler, yuvarlak kartlar ve koyu altyazı kapsülü. Alt kısımdaki beyaz zaman çubuğu her sahneyi bir nokta olarak gösterir ve ilerleme göstergesi olarak çalışır. Renk, tipografi, yerleşim, bileşen, hareket ve karakter kuralları [docs/TEMA.md](docs/TEMA.md) dosyasında tanımlıdır. Aurora ve Gün batımı temaları seçenek olarak kalır.
 
-Temanın imza karakteri **Kuzgun**'dur: kuş siluet setlerindeki gibi tek renk, gerçekçi bir kuzgun silueti (dik duruş, açık kanatlı uçuş, ötme ve gagalama pozları). Gagası sese göre açılır. Gerçek bir kuş gibi davranır: kesmelerde kanat çırparak uçar, altyazı kapsülüne, butonlara, anahtar kelimeye ve kartlara konar, konunca gagalar, beklerken başını kesik hareketlerle çevirip zıplar; kamera kuşun konduğu yere yakınlaşıp ardından içeriğe kayar. Diğer karakterler (Volt, Nova, Kaan, Ece) de seçilebilir.
+Varsayılan anlatıcı **Vega**'dır: metal yüzlü, ışıklı vizörlü bir android haber spikeri; ağzı konuşurken ses ekolayzırı gibi yanar, devre ve kulak ışıkları sahnenin vurgu renginde parlar. Video varsayılan olarak koyu siber temayla (neon vurgular, HUD köşe çerçeveleri, tarama çizgileri) üretilir; haberde marka geçerse vurgu rengi markanın rengi olur. Panelden Kuzgun, Volt, Nova, Kaan veya Ece ve açık renk paketleri de seçilebilir.
 
 Sol üstte **Aopia** yazar. Renkler bir **renk paketinden** gelir ve her kesmede değişip iki sahnede bir ana renge döner. Paket otomatik seçilir: haberde bir marka geçiyorsa (ör. Claude) marka renkleri, yoksa Pinterest 2026, WGSN 2026 Transformative Teal veya Anthropic'in theme-factory skill'indeki temalar. Panelden marka logosu yüklenebilir; logo girişte ve markanın geçtiği sahnelerde görünür, yoksa marka adı renkli etiketle yazılır. Kamera her sahnede ana widget'a yakınlaşır, bekler ve geri açılır. Altyazı ayrı bir kutuda değil, videoya gömülüdür: büyük harfli, konturlu, kelime kelime beliren ve o an söylenen kelimeyi limon renkte yakan kısa parçalar.
 
@@ -174,7 +174,7 @@ Sol üstte **Aopia** yazar. Renkler bir **renk paketinden** gelir ve her kesmede
 
 ![Kapsül teması: giriş, odak kartı, ara sahne, gündem etiketi, yakın plan ve PiP](docs/capsule-scenes.png)
 
-API'de `style: "capsule"` kullanılır. Geriye uyumluluk için API'nin varsayılan teması `aurora` olarak kalır; arayüz yeni projelerde Kapsül + Anlatıcılı + Kuzgun seçili gelir.
+API'de `style: "capsule"` kullanılır. Geriye uyumluluk için API'nin varsayılan teması `aurora` olarak kalır; arayüz yeni projelerde Kapsül + Anlatıcılı + Vega seçili gelir.
 
 ## Anlatıcılı sunum (karakter)
 
@@ -187,11 +187,11 @@ API'de `style: "capsule"` kullanılır. Geriye uyumluluk için API'nin varsayıl
 
 Karakter, Adobe Character Animator, PNGTuber ve VTuber modellerindeki gibi parçalara ayrılmış bir **rig**'dir: gövde, baş, gözler, göz bebekleri, kaşlar ve ağız ayrı ayrı hareket eder. Ağız, seslendirmenin ses yüksekliğine göre açılır; o anda okunan altyazı harfine göre A/E/I/O/U, M-B-P ve F-V ağız şekilleri (visemler) seçilir. Gözler kendiliğinden kırpışır ve kısa bakış değişimleri yapar; kaşlar konuşma enerjisinde, sahne geçişlerinde ve soru/ünlem cümlelerinde kalkar; baş hafifçe sallanır ve vurgu anlarında eğilir. Sessiz videoda ağız hareketi altyazı metninden tahmin edilir. Bu senkron ses yüksekliği ve metin konumundan **tahmin edilir**; konuşma tanıma veya fonem hizalaması yapılmaz.
 
-Hazır beş karakter vardır: **Kuzgun** (varsayılan), **Volt** (kapsül kafalı maskot), **Nova** (mor perçemli, gözlüklü), **Kaan** (sakallı, gözlüklü) ve **Ece** (küt saçlı). Anlatıcı adını panelden değiştirebilirsiniz (en fazla 18 karakter). Karakterler kod içinde vektör çizimlerle üretilir (`app/presenter.py`); indirilen görsel, font veya lisanslı karakter kullanılmaz. Karakterin rengi ve kıyafeti, `LOOKS` sözlüğüne yeni bir görünüm eklenerek özelleştirilebilir.
+Hazır altı karakter vardır: **Vega** (varsayılan, android spiker), **Kuzgun** (kuzgun silueti), **Volt** (kapsül kafalı maskot), **Nova** (mor perçemli, gözlüklü), **Kaan** (sakallı, gözlüklü) ve **Ece** (küt saçlı). Anlatıcı adını panelden değiştirebilirsiniz (en fazla 18 karakter). Karakterler kod içinde vektör çizimlerle üretilir (`app/presenter.py`); indirilen görsel, font veya lisanslı karakter kullanılmaz. Karakterin rengi ve kıyafeti, `LOOKS` sözlüğüne yeni bir görünüm eklenerek özelleştirilebilir.
 
 ![Anlatıcılı videodan sahneler: üç karakter, PiP ve konuşma balonu](docs/presenter-scenes.png)
 
-API'de `video_design: "host"`, `host_look: "kuzgun" | "volt" | "nova" | "kaan" | "ece"` ve isteğe bağlı `host_name` kullanılır. API'nin varsayılan tasarımı geriye uyumluluk için `kinetic` kalır; arayüz yeni projelerde Anlatıcılı tasarımı seçili getirir.
+API'de `video_design: "host"`, `host_look: "vega" | "kuzgun" | "volt" | "nova" | "kaan" | "ece"` ve isteğe bağlı `host_name` kullanılır. API'nin varsayılan tasarımı geriye uyumluluk için `kinetic` kalır; arayüz yeni projelerde Anlatıcılı tasarımı seçili getirir.
 
 ## 0.4: Hazır ses dosyasıyla kurgu
 

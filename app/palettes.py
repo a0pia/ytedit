@@ -52,11 +52,25 @@ def scene(name: str, panel: str, ink: str, accent: str, on_accent: str | None = 
             "on_accent": on_accent, "bird": "EEECE6" if dark else "17181C"}
 
 
-def pack(label: str, frame: str, pop: str, scenes: list[dict], source: str) -> dict:
-    return {"label": label, "frame": frame, "pop": pop, "scenes": scenes, "source": source}
+def pack(label: str, frame: str, pop: str, scenes: list[dict], source: str, cyber: bool = False) -> dict:
+    return {"label": label, "frame": frame, "pop": pop, "scenes": scenes, "source": source, "cyber": cyber}
+
+
+def cyber_pack(label: str, accent: str, source: str = "Siber tema") -> dict:
+    """Dark glass dashboard: near-black panels, dark cards, one neon accent per scene."""
+    return pack(label, "04060B", accent, [
+        scene("void", "0A0F1C", "E6F1FF", accent, card="131B2D"),
+        scene("deep-teal", "062A30", "E6FFFB", "7CFFB2", card="0E3A40"),
+        scene("graphite", "1A2130", "EEF2F8", "FFB547", card="242D3E"),
+        scene("matrix", "07170F", "E4FFEE", "3DFF8B", card="0F2A1C"),
+        scene("ion", "0E1838", "E8EEFF", "4D8BFF", card="1A2550"),
+    ], source, cyber=True)
 
 
 PACKS = {
+    "cyber": cyber_pack("Siber · Neon camgöbeği", "2EE6FF"),
+    "cyber-amber": cyber_pack("Siber · Kehribar", "FFB547"),
+    "cyber-green": cyber_pack("Siber · Matrix yeşili", "3DFF8B"),
     "kapsul": pack("Kapsül", "3C3D3F", "D9F23A", [
         scene("main", "E8E7E2", "2B2C2E", "D9F23A", "2B2C2E", "F6F5F1"),
         scene("lime", "D9F23A", "1E220C", "2B2C2E"),
@@ -163,7 +177,14 @@ PACKS = {
     ], "Marka renklerine yakın"),
 }
 
-GENERAL_PACKS = ("pinterest-2026", "teal-2026", "ocean", "sunset", "tech", "golden", "forest")
+# Brand accents on the dark cyber theme (approximate brand colours).
+BRAND_ACCENTS = {"anthropic": "D97757", "openai": "10A37F", "google": "4285F4", "apple": "2997FF",
+                 "nvidia": "76B900", "meta": "0866FF", "microsoft": "00A4EF", "samsung": "4D7CFF", "tesla": "E31937"}
+for _brand, _accent in BRAND_ACCENTS.items():
+    PACKS[f"cyber-{_brand}"] = cyber_pack(f"Siber · {PACKS[_brand]['label']}", _accent, "Siber tema + marka rengi")
+
+GENERAL_PACKS = ("cyber", "cyber-amber", "cyber-green")
+LIGHT_PACKS = ("pinterest-2026", "teal-2026", "ocean", "sunset", "tech", "golden", "forest")
 
 # Brand registry: slug -> (display name, pack, keyword stems). Stems match word
 # starts so Turkish suffixes still match ("Claude'un", "Google'ın").
@@ -207,10 +228,10 @@ def primary_brand(title: str, script: str) -> str | None:
 
 
 def choose_pack(choice: str, title: str, script: str) -> str:
-    """Resolve "auto" to the story's brand pack, else a stable trend pack per story."""
+    """Resolve "auto" to the dark cyber theme, tinted with the story's brand colour."""
     if choice != "auto":
         return choice
     brand = primary_brand(title, script)
     if brand:
-        return BRANDS[brand][1]
+        return f"cyber-{BRANDS[brand][1]}"
     return GENERAL_PACKS[zlib.crc32(title.encode("utf-8")) % len(GENERAL_PACKS)]

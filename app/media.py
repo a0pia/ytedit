@@ -739,7 +739,7 @@ def _render_work(project: dict, output_dir: Path, options: dict | None = None,
     design = options.get("video_design", "kinetic")
     if design not in ("kinetic", "host", "classic"):
         raise MediaError("Desteklenmeyen video tasarımı. kinetic, host veya classic seçin.")
-    look = options.get("host_look", "kuzgun")
+    look = options.get("host_look", "vega")
     if look not in presenter.LOOKS:
         raise MediaError("Desteklenmeyen anlatıcı görünümü. " + ", ".join(presenter.LOOKS) + " seçin.")
     if not isinstance(options.get("host_name", ""), str):

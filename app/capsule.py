@@ -242,14 +242,24 @@ def events(title: str, segments, scenes: list[dict], duration: float, host: dict
     count = len(scenes)
     # --- HUD chassis: frame with a window onto the moving world ------------------------
     shape(hud, 0, duration, 0, "m 0 0 l 720 0 720 1280 0 1280 " + _round_rect_reversed(18, 150, 684, 1112, 44), frame)
-    shape(hud, 0, duration, 1, _round_rect(640, 66, 33), "FFFFFF", r"\pos(40,1158)")
+    bar, idle_dot = ("141B2B", "39445C") if pk.get("cyber") else ("FFFFFF", PANEL_DEEP)
+    shape(hud, 0, duration, 1, _round_rect(640, 66, 33), bar, r"\pos(40,1158)")
     disc(hud, 80, 1191, 26, frame, 0, duration, 2)
     shape(hud, 0, duration, 3, _round_rect(18, 16, 4), pop, r"\pos(71,1183)")
     dots = [round(150 + (630 - 150) * (i + .5) / count) for i in range(count)]
     for x in dots:
-        disc(hud, x, 1191, 6, PANEL_DEEP, 0, duration, 2)
+        disc(hud, x, 1191, 6, idle_dot, 0, duration, 2)
 
     shape(world, 0, duration, 0, "m -100 -100 l 820 -100 820 1380 -100 1380", PANEL)
+    if pk.get("cyber"):
+        # HUD corner brackets around the window and faint CRT scanlines.
+        brackets = []
+        for x, y, sx, sy in ((30, 162, 1, 1), (690, 162, -1, 1), (30, 1250, 1, -1), (690, 1250, -1, -1)):
+            brackets.append(f"m {x} {y} l {x + 46 * sx} {y} {x + 46 * sx} {y + 4 * sy} {x + 4 * sx} {y + 4 * sy} "
+                            f"{x + 4 * sx} {y + 46 * sy} {x} {y + 46 * sy}")
+        shape(hud, 0, duration, 5, " ".join(brackets), pop, extra=r"\blur1", alpha="20")
+        scan = " ".join(f"m 0 {y} l 720 {y} 720 {y + 1} 0 {y + 1}" for y in range(150, 1262, 5))
+        shape(hud, 0, duration, 3, scan, "000000", alpha="E8")
     big_name = presenter.display_name(host["name"]) if host else ""
     for index, scene in enumerate(scenes):
         start, end = scene["start"], scene["end"]
@@ -272,10 +282,11 @@ def events(title: str, segments, scenes: list[dict], duration: float, host: dict
         text(hud, start, end, label, 408 + chip // 2, 75, 18, INK, 5, r"\fad(120,0)", layer=2)
         shape(hud, start, end, 1, _round_rect(104, 52, 26), "57585B", rf"\pos({416 + chip},49)")
         text(hud, start, end, f"{index + 1:02d} / {count:02d}", 468 + chip, 75, 17, "FFFFFF", 5, layer=2)
-        shape(hud, start, end, 2, _round_rect(64, 44, 22), frame, rf"\pos({dots[index] - 32},1169)", r"\fad(100,0)")
+        shape(hud, start, end, 2, _round_rect(64, 44, 22), "2A3450" if pk.get("cyber") else frame,
+              rf"\pos({dots[index] - 32},1169)", r"\fad(100,0)")
         disc(hud, dots[index], 1191, 7, pop, start, end, 3, r"\fscx0\fscy0\t(0,220,\fscx100\fscy100)")
         for past in dots[:index]:
-            disc(hud, past, 1191, 6, frame, start, end, 3, alpha="40")
+            disc(hud, past, 1191, 6, pop if pk.get("cyber") else frame, start, end, 3, alpha="40")
 
         # World backdrop in the scene colour with a faint grid that makes zooms readable.
         shape(world, start, end, 0, "m -100 -100 l 820 -100 820 1380 -100 1380", pal["panel"])
@@ -300,19 +311,19 @@ def events(title: str, segments, scenes: list[dict], duration: float, host: dict
             shape(world, start, end, 1, _round_rect(640, 430, 40), pal["deep"], r"\move(40,540,40,500,0,360)", r"\fad(120,0)")
             disc(world, 360, 720, 170, pal["card"], start, end, 1, r"\fscx60\fscy60\t(0,420,\fscx100\fscy100)\fad(120,0)", "60")
             tag = width_of(big_name, 22) + 64
-            shape(world, start, end, 5, _round_rect(tag, 46, 23), INK, r"\move(-220,860,52,860,0,320)")
-            disc(world, 78, 883, 7, pop, start, end, 5, r"\move(-194,883,78,883,0,320)")
-            text(world, start, end, big_name, 96, 871, 22, "FFFFFF", extra=r"\move(-176,871,96,871,0,320)", layer=5)
+            shape(world, start, end, 5, _round_rect(tag, 46, 23), accent, r"\move(-220,860,52,860,0,320)")
+            disc(world, 78, 883, 7, on_accent, start, end, 5, r"\move(-194,883,78,883,0,320)")
+            text(world, start, end, big_name, 96, 871, 22, on_accent, extra=r"\move(-176,871,96,871,0,320)", layer=5)
         elif host and mode == "pip" and not roaming:
             cx, cy, radius = PIP_CIRCLE
-            disc(world, cx, cy, radius, INK, start, end, 3, r"\fscx0\fscy0\t(0,260,\fscx100\fscy100)")
+            disc(world, cx, cy, radius, pal["deep"], start, end, 3, r"\fscx0\fscy0\t(0,260,\fscx100\fscy100)")
             ring = presenter.screen_circle(cx, cy, radius - 4) + " " + presenter.screen_circle(cx, cy, radius - 10, reverse=True)
-            shape(world, start, end, 5, ring, LIME, extra=r"\fad(220,0)")
+            shape(world, start, end, 5, ring, accent, extra=r"\fad(220,0)\blur1.5")
             name = presenter.display_name(host["name"])
             tag = width_of(name, 16) + 30
-            shape(world, start, end, 5, _round_rect(tag, 30, 15), LIME,
+            shape(world, start, end, 5, _round_rect(tag, 30, 15), accent,
                   rf"\pos({round(cx - tag / 2)},{round(cy + radius - 20)})", r"\fad(220,0)")
-            text(world, start, end, name, round(cx), round(cy + radius - 5), 16, INK, 5, r"\fad(220,0)", layer=5, bold=True)
+            text(world, start, end, name, round(cx), round(cy + radius - 5), 16, on_accent, 5, r"\fad(220,0)", layer=5, bold=True)
 
         if brand and (layout == "hook" or any(
                 stem in scene.get("phrase", "").lower() for stem in brand["stems"])):
@@ -355,13 +366,13 @@ def events(title: str, segments, scenes: list[dict], duration: float, host: dict
             shape(world, start, end, 6, f"m 300 {top + box - 2} l 364 {top + box - 2} l 318 {top + box + 46}", pal["card"],
                   r"\move(0,40,0,0,0,320)", r"\fad(100,120)")
             chip = width_of(label, 16) + 36
-            shape(world, start + .06, end, 6, _round_rect(chip, 32, 16), INK, rf"\pos(76,{top + 26})", r"\fad(120,120)")
-            text(world, start + .06, end, label, 76 + chip // 2, top + 42, 16, "FFFFFF", 5, r"\fad(120,120)")
+            shape(world, start + .06, end, 6, _round_rect(chip, 32, 16), accent, rf"\pos(76,{top + 26})", r"\fad(120,120)")
+            text(world, start + .06, end, label, 76 + chip // 2, top + 42, 16, on_accent, 5, r"\fad(120,120)")
             lines_in(world, start + .1, end, fitted, size, 76, top + 74, card_ink)
         elif layout == "editorial":
             shape(world, start, end, 1, "m 0 0 l 2 0 2 36 0 36", ink, rf"\pos(95,{TIMELINE_Y + 30})", alpha="40")
             shape(world, start, end, 3, _round_rect(640, 410, 36), pal["card"], r"\move(40,346,40,300,0,320)", r"\fad(100,120)")
-            text(world, start, end, "Odak noktası", 76, 332, 18, INK_SOFT, extra=r"\move(76,378,76,332,0,320)\fad(100,120)")
+            text(world, start, end, "Odak noktası", 76, 332, 18, card_ink, extra=r"\1a&H60&" + r"\move(76,378,76,332,0,320)\fad(100,120)")
             disc(world, 632, 348, 26, "FFFFFF", start, end, 4, r"\fad(160,120)")
             disc(world, 632, 348, 8, accent, start, end, 4, r"\fad(200,120)")
             size, fitted = _fit_display(scene["phrase"], sizes=(52, 46, 42, 38, 34, 30), width=560, lines=5, height=230)
@@ -372,10 +383,10 @@ def events(title: str, segments, scenes: list[dict], duration: float, host: dict
             shape(world, start, end, 4, _wave(1400, 656, 12, 44, 1.3, 700), "A9A7A0",
                   rf"\move(0,0,-640,0,0,{milliseconds})", clip + r"\fad(200,120)", "40")
         elif layout == "card":
-            shape(world, start, end, 3, _round_rect(300, 64, 32), INK, r"\move(-260,290,40,290,0,320)")
-            disc(world, 72, 322, 24, "FFFFFF", start, end, 4, r"\move(-228,322,72,322,0,320)")
-            shape(world, start, end, 5, _round_rect(22, 10, 5), INK, r"\move(-239,317,61,317,0,320)", r"\frz35")
-            text(world, start, end, "Gündemde", 112, 308, 20, "FFFFFF", extra=r"\move(-188,308,112,308,0,320)", layer=5)
+            shape(world, start, end, 3, _round_rect(300, 64, 32), accent, r"\move(-260,290,40,290,0,320)")
+            disc(world, 72, 322, 24, on_accent, start, end, 4, r"\move(-228,322,72,322,0,320)")
+            shape(world, start, end, 5, _round_rect(22, 10, 5), accent, r"\move(-239,317,61,317,0,320)", r"\frz35")
+            text(world, start, end, "Gündemde", 112, 308, 20, on_accent, extra=r"\move(-188,308,112,308,0,320)", layer=5)
             shape(world, start, end, 1, "m 0 0 l 2 0 2 34 0 34", ink, r"\pos(190,354)", alpha="40")
             shape(world, start, end, 3, _round_rect(640, 330, 36), pal["card"], r"\move(40,430,40,388,0,320)", r"\fad(100,120)")
             size, fitted = _fit_display(scene["phrase"], sizes=(52, 46, 42, 38, 34, 30), width=560, lines=5, height=250)
@@ -468,7 +479,9 @@ def events(title: str, segments, scenes: list[dict], duration: float, host: dict
                   r"\N".join(rendered))
     if host:
         world.extend(presenter.puppet_events(
-            look_id=host["look"], accent_for=lambda index: palette(index, pack_id)["bird"], spans=host["spans"], scenes=scenes,
+            look_id=host["look"], spans=host["spans"], scenes=scenes,
+            accent_for=lambda index: palette(index, pack_id)["bird" if presenter.LOOKS[host["look"]].get("kind") == "raven"
+                                                              else "accent"],
             duration=duration, levels=host.get("levels"), seed=title, layer=4,
             placements=PLACEMENTS, pip_circle=PIP_CIRCLE))
     return world, hud, overlays

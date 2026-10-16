@@ -151,11 +151,11 @@ class CapsuleThemeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             result = render({"title": "Kapsül", "script": "Merhaba teknoloji. Bu bir deneme mi? Evet."},
                             Path(temporary), {"speech": False, "video_design": "host", "style": "capsule"})
-            self.assertEqual(result["host_look"], "kuzgun")
+            self.assertEqual(result["host_look"], "vega")
             frame = subprocess.run(["ffmpeg", "-nostdin", "-loglevel", "error", "-ss", "0.5", "-i", result["video_path"],
                                     "-frames:v", "1", "-vf", "crop=10:10:660:400", "-f", "rawvideo", "-pix_fmt", "rgb24",
                                     "pipe:1"], capture_output=True, check=True).stdout
-            self.assertGreater(sum(frame) / len(frame), 120)  # Light panel, not a dark scene.
+            self.assertLess(sum(frame) / len(frame), 80)  # Dark cyber panel by default.
 
 
 class AttentionTests(unittest.TestCase):
@@ -230,7 +230,8 @@ class BrandTests(unittest.TestCase):
     def test_story_brand_picks_its_pack_and_turkish_suffixes_match(self):
         from app import palettes
         self.assertEqual(palettes.primary_brand("Claude'un yeni sürümü", "Anthropic duyurdu."), "claude")
-        self.assertEqual(palettes.choose_pack("auto", "Claude'un yeni sürümü", ""), "anthropic")
+        self.assertEqual(palettes.choose_pack("auto", "Claude'un yeni sürümü", ""), "cyber-anthropic")
+        self.assertEqual(palettes.PACKS["cyber-anthropic"]["pop"], "D97757")
         self.assertEqual(palettes.choose_pack("ocean", "Claude", ""), "ocean")
         self.assertIn(palettes.choose_pack("auto", "Yerel haber", "Belediye duyurdu."), palettes.GENERAL_PACKS)
         self.assertIsNone(palettes.primary_brand("Metaverse değil", "metal fiyatları"))
@@ -257,3 +258,31 @@ class BrandTests(unittest.TestCase):
         _world, _hud, overlays = capsule.events("Claude", [(0, 12, "Metin")], scenes, 12, host, "anthropic", brand)
         self.assertGreaterEqual(len(overlays), 1)
         self.assertEqual(overlays[0]["size"], 150 - 2 * round(150 * .12))
+
+
+class AndroidTests(unittest.TestCase):
+    def test_vega_android_has_visor_eyes_and_an_equalizer_mouth(self):
+        look = presenter.LOOKS["vega"]
+        pose = {"gaze": (0, 0), "open": 1.0, "mouth": ("C", 22, 18), "brow": (.2, 4), "level": .9}
+        names = [name for name, _c, _p in presenter.head_parts(look, "2EE6FF", pose)]
+        self.assertTrue({"head", "visor", "eyes", "brows", "mouth-eq", "ear-lights"} <= set(names))
+        talking = next(path for name, _c, path in presenter.head_parts(look, "2EE6FF", pose) if name == "mouth-eq")
+        self.assertEqual(talking.count("m "), 7)  # Seven equalizer bars while speaking.
+        quiet = next(path for name, _c, path in presenter.head_parts(look, "2EE6FF", {**pose, "mouth": ("X", 0, 0)})
+                     if name == "mouth-eq")
+        self.assertEqual(quiet.count("m "), 1)
+        body = [name for name, _c, _p in presenter.body_parts(look, "2EE6FF", pose)]
+        self.assertTrue({"torso", "circuits", "core"} <= set(body))
+
+    def test_neon_parts_glow(self):
+        scenes = _host_plan(_kinetic_plan(6, SPANS[:2], 2.8))
+        events = presenter.puppet_events(look_id="vega", accent_for=lambda _i: "2EE6FF", spans=SPANS, scenes=scenes,
+                                         duration=6, levels=None, seed="s")
+        self.assertTrue(any(r"\blur" in line for line in events))
+
+    def test_cyber_packs_are_dark_and_readable(self):
+        from app import palettes
+        for name in ("cyber", "cyber-amber", "cyber-green", "cyber-anthropic"):
+            pack = palettes.PACKS[name]
+            self.assertTrue(pack["cyber"])
+            self.assertTrue(all(palettes.luminance(scene["panel"]) < .05 for scene in pack["scenes"]))

@@ -106,11 +106,11 @@ Her sahne paletinde metin rengi otomatik kontrol edilir: kart metni ile kart ara
 
 Video iki katmandan oluşur: **dünya** (panel içeriği, kartlar, kuzgun) ve **arayüz** (çerçeve, sekme, çipler, altyazı, alt zaman çubuğu). Dünya 1,2 kat büyük bir tuvale çizilir ve sanal bir kamera üzerinde hareket eder; arayüz sabit kalır.
 
-**Widget zoom'u:** Her sahnede kamera önce geniş açıdadır. Sahnenin ana widget'ına (kart, anahtar kelime kapsülü, alıntı, büyük plandaki kuzgun) yumuşakça yaklaşır (%14–24), bir süre orada kalır, sahne bitmeden geri açılır. Adım adım sahnesinde kamera birinci karttan ikinci karta iner.
+**Tipografi haritası ve vurgu zoom'u:** Kamera her sahnede otomatik yakınlaşmaz; görüntü çoğu zaman sabittir. Uygulama seslendirme metnini kelime kelime inceleyip bir tipografi haritası çıkarır ve her kelimeye puan verir: rakam ve birimler (ör. "yüzde 40", "3 milyar"), marka adları, "ama/ancak/peki/çünkü" gibi dönüş kelimelerinden sonraki kelime, "en/ilk/rekor/yeni" gibi güçlü ifadeler, soru ve ünlem cümlelerinin sonu. En güçlü anlar seçilir: en fazla yaklaşık 6,5 saniyede bir ve aralarında en az 3,5 saniye olacak şekilde. Kamera yalnızca bu anlarda, kelime söylenmeden hemen önce o sahnenin ana öğesine yaklaşır, kelime boyunca bekler ve geri açılır. Aynı anda altyazıdaki kelime büyük ve vurgu renginde gelir, kısa bir "pop" sesi çalar. Seçilen vurgular panelde videonun özetinde listelenir.
 
 | Öğe | Hareket | Süre |
 | --- | --- | --- |
-| Widget zoom'u | Yaklaş → bekle → geri açıl (smoothstep) | sahne boyunca |
+| Vurgu zoom'u | Yalnızca tipografi haritasının seçtiği kelimelerde: yaklaş → bekle → geri açıl | ~1,5 sn |
 | Düğüm | Ölçek 0 → 112 → 100 | 380 ms |
 | Kart | 40 px aşağıdan kayarak + solma | 320 ms |
 | Anahtar kelime | %150'den %100'e düşüş + vurgu kapsülü açılması | 200 ms |

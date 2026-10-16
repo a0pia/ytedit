@@ -18,7 +18,7 @@ import math
 import os
 import re
 
-from . import presenter
+from . import emphasis, presenter
 from .palettes import PACKS
 
 FRAME, PANEL, PANEL_DEEP, CARD = "3C3D3F", "E8E7E2", "D3D1CA", "F6F5F1"
@@ -112,51 +112,44 @@ def perches(scenes: list[dict]) -> list[dict]:
     return planned
 
 
-def camera(scenes: list[dict], duration: float) -> tuple[str, str, str]:
-    """zoompan expressions (z, x, y): zoom into each scene's widget, hold, zoom back out."""
-    def piecewise(build) -> str:
-        expression = build(scenes[-1])
-        for scene in reversed(scenes[:-1]):
-            expression = f"if(lt(it,{scene['end']:.3f}),{build(scene)},{expression})"
-        return expression
+def emphasis_moments(segments, duration: float) -> list[dict]:
+    """The typography map's chosen moments for this narration."""
+    return emphasis.choose_moments(emphasis.typography_map(caption_chunks(segments)), duration)
 
-    def bump(scene) -> str:
-        start, length = scene["start"], max(.1, scene["end"] - scene["start"])
-        u = f"(it-{start:.3f})"
-        rise = max(.2, min(.45, length * .15))
-        hold_end = max(rise + .2, length * .62)
-        fall = max(.25, length * .25)
-        up = f"min(1,max(0,({u}-{rise:.3f})/0.35))"
-        down = f"min(1,max(0,({hold_end + fall:.3f}-{u})/{fall:.3f}))"
-        b = f"min({up},{down})"
-        return f"({b}*{b}*(3-2*{b}))"
 
-    def zoom(scene) -> str:
-        extra = WIDGETS.get(scene["layout"], (360, 480, .16))[2]
-        return f"1.02+{extra:.2f}*{bump(scene)}"
+def camera(scenes: list[dict], duration: float, moments: list[dict] | None = None) -> tuple[str, str, str]:
+    """zoompan expressions (z, x, y): a still frame, punching in only at emphasis moments.
 
-    def focus(axis: int):
-        def build(scene) -> str:
-            fx, fy, _extra = WIDGETS.get(scene["layout"], (360, 480, .16))
-            if scene["layout"] == "split" and axis == 1:
-                reveal = scene["start"] + (scene["end"] - scene["start"]) * .45
-                fy_expr = f"({fy}+210*min(1,max(0,(it-{reveal:.3f})/0.4)))"
-            else:
-                fy_expr = str((fx, fy)[axis])
-            rest = (360, 640)[axis]
-            return f"({rest}+(({fy_expr})-{rest})*{bump(scene)})*{CANVAS_SCALE}"
-        return build
+    Each moment eases in just before its word, holds while it is spoken, then
+    eases back out; the camera aims at the widget of the scene on screen then.
+    """
+    def scene_at(t):
+        return next((scene for scene in scenes if scene["start"] <= t < scene["end"]), scenes[-1])
 
-    z = piecewise(zoom)
-    x = f"max(0,min(iw-iw/zoom,({piecewise(focus(0))})-iw/zoom/2))"
-    y = f"max(0,min(ih-ih/zoom,({piecewise(focus(1))})-ih/zoom/2))"
+    terms, focus_x, focus_y = [], [], []
+    for moment in moments or []:
+        start, end = moment["start"] - .28, moment["end"] + .5
+        rise = f"min(1,max(0,(it-{start:.3f})/0.28))"
+        fall = f"min(1,max(0,({end + .7:.3f}-it)/0.7))"
+        b = f"min({rise},{fall})"
+        bump = f"({b}*{b}*(3-2*{b}))"
+        fx, fy, _extra = WIDGETS.get(scene_at(moment["start"])["layout"], (360, 480, .16))
+        strength = min(.2, .12 + .03 * moment["score"])
+        terms.append(f"{strength:.3f}*{bump}")
+        focus_x.append(f"{fx - 360}*{bump}")
+        focus_y.append(f"{fy - 640}*{bump}")
+    z = "1.0" + "".join(f"+{term}" for term in terms)
+    fx = "(360" + "".join(f"+{term}" for term in focus_x) + f")*{CANVAS_SCALE}"
+    fy = "(640" + "".join(f"+{term}" for term in focus_y) + f")*{CANVAS_SCALE}"
+    x = f"max(0,min(iw-iw/zoom,{fx}-iw/zoom/2))"
+    y = f"max(0,min(ih-ih/zoom,{fy}-ih/zoom/2))"
     return z, x, y
 
 
-def sfx_cues(scenes: list[dict]) -> tuple[list[float], list[float]]:
-    """Whooshes on every cut, pops when a keyword lands or a second card appears."""
+def sfx_cues(scenes: list[dict], moments: list[dict] | None = None) -> tuple[list[float], list[float]]:
+    """Whooshes on every cut; pops on emphasis moments, keywords and second cards."""
     whooshes = [scene["start"] for scene in scenes[1:]]
-    pops = []
+    pops = [moment["start"] for moment in moments or []]
     for scene in scenes:
         if scene["layout"] == "keyword":
             pops.append(scene["start"] + .12)
@@ -448,6 +441,7 @@ def events(title: str, segments, scenes: list[dict], duration: float, host: dict
     # Burned-in kinetic captions: short bursts, each word pops in as it is spoken
     # and the spoken word lights up. No box: thick outline and shadow over the scene.
     lime = rf"&H{pop[4:6]}{pop[2:4]}{pop[0:2]}&"
+    stressed = {round(moment["start"], 3) for moment in emphasis_moments(segments, duration)}
     for number, (start, end, words, times) in enumerate(caption_chunks(segments)):
         tilt = (-2.5, 1.5, -1, 2.5)[number % 4]
         upper = [_upper(word) for word in words]
@@ -467,6 +461,10 @@ def events(title: str, segments, scenes: list[dict], duration: float, host: dict
                     escaped = _ass_escape(upper[i])
                     if i < active:
                         pieces.append(r"{\1c&HFFFFFF&\alpha&H00&}" + escaped)
+                    elif i == active and round(times[i], 3) in stressed:
+                        # Typography-map moment: the word lands big and stays enlarged.
+                        pieces.append(rf"{{\1c{lime}\alpha&H00&\fscx175\fscy175\t(0,140,\fscx145\fscy145)}}" + escaped +
+                                      r"{\fscx100\fscy100}")
                     elif i == active:
                         pieces.append(rf"{{\1c{lime}\alpha&H00&\fscx122\fscy122\t(0,110,\fscx100\fscy100)}}" + escaped +
                                       r"{\fscx100\fscy100}")

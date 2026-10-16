@@ -30,7 +30,7 @@ MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 MAX_LOGO_BYTES = 3 * 1024 * 1024
 ACTIVE_STATUSES = {'queued', 'rendering', 'uploading', 'translating', 'processing_audio'}
 VIDEO_FIELDS = ('video_url', 'subtitle_url', 'video_path', 'duration', 'render_options',
-                'provider', 'voice', 'speech', 'subtitle_timing', 'scene_count', 'design')
+                'provider', 'voice', 'speech', 'subtitle_timing', 'scene_count', 'design', 'emphasis')
 load_dotenv(ROOT / '.env')
 
 
@@ -606,7 +606,7 @@ def create_app(data_dir=None, testing=False):
             validate(translated)
             result = {**original, **translated, 'status': 'draft', 'progress': 0, 'error': None, 'updated': now()}
             for key in ('video_url', 'subtitle_url', 'video_path', 'duration', 'render_options', 'provider',
-                        'voice', 'speech', 'subtitle_timing', 'scene_count', 'design'):
+                        'voice', 'speech', 'subtitle_timing', 'scene_count', 'design', 'emphasis'):
                 result.pop(key, None)
             with jobs_lock:
                 put('project', result)
@@ -635,7 +635,7 @@ def create_app(data_dir=None, testing=False):
                 result['updated'] = now()
             if changes_video:
                 for key in ['video_url', 'subtitle_url', 'video_path', 'duration', 'render_options',
-                            'provider', 'voice', 'speech', 'subtitle_timing', 'scene_count', 'design']:
+                            'provider', 'voice', 'speech', 'subtitle_timing', 'scene_count', 'design', 'emphasis']:
                     result.pop(key, None)
                 result['status'] = 'draft'
                 result['progress'] = 0
@@ -697,7 +697,7 @@ def create_app(data_dir=None, testing=False):
                 output = media.render(render_input, target, opts, progress)
                 video = Path(output['video_path']).resolve()
                 subtitle = Path(output['subtitle_path']).resolve()
-                result.update({key: output[key] for key in ('provider', 'voice', 'speech', 'subtitle_timing', 'scene_count', 'design') if key in output})
+                result.update({key: output[key] for key in ('provider', 'voice', 'speech', 'subtitle_timing', 'scene_count', 'design', 'emphasis') if key in output})
                 result.update(status='ready', progress=100, error=None, duration=output['duration'],
                               video_path=str(video), video_url='/media/' + str(video.relative_to(data / 'renders')),
                               subtitle_url='/media/' + str(subtitle.relative_to(data / 'renders')),

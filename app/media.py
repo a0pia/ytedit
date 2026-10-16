@@ -869,13 +869,14 @@ def _render_work(project: dict, output_dir: Path, options: dict | None = None,
         filters = "scale=720:1280,zoompan=z='min(zoom+0.00020,1.035)':x='iw/2-iw/zoom/2':y='ih/2-ih/zoom/2':d=1:s=720x1280:fps=24,ass=captions.ass"
     elif style == "capsule":
         audio_track = "narration.wav"
+        moments = capsule.emphasis_moments(segments, cursor)
         if effects:
-            whooshes, pops = capsule.sfx_cues(scenes)
+            whooshes, pops = capsule.sfx_cues(scenes, moments)
             sfx.mix(narration_path, output_dir / "mix.wav", whooshes, pops)
             audio_track = "mix.wav"
         width, height = round(720 * capsule.CANVAS_SCALE), round(1280 * capsule.CANVAS_SCALE)
         inputs = ["-f", "lavfi", "-i", f"color=c=0xE8E7E2:s={width}x{height}:r=24:d={cursor:.6f}", "-i", audio_track]
-        zoom, x, y = capsule.camera(scenes, cursor)
+        zoom, x, y = capsule.camera(scenes, cursor, moments)
         overlays = json.loads((output_dir / "overlays.json").read_text(encoding="utf-8"))
         # Uploaded logos are composited into the world layer so they zoom with it.
         graph, current = ["[0:v]ass=world.ass[w0]"], "w0"
@@ -928,7 +929,10 @@ def _render_work(project: dict, output_dir: Path, options: dict | None = None,
             "subtitle_timing": uploaded_timing if provider == "uploaded" else "sentence_audio" if speech else "estimated",
             "design": design, "scene_count": len(scenes) if scenes else 1,
             **({"host_name": host_name, "host_look": look} if design == "host" else {}),
-            **({"palette": pack, "brand": brand["slug"] if brand else None} if style == "capsule" else {})}
+            **({"palette": pack, "brand": brand["slug"] if brand else None,
+                "emphasis": [{"word": m["word"], "time": round(m["start"], 2), "reason": m["reason"]}
+                             for m in capsule.emphasis_moments(segments, cursor)]}
+               if style == "capsule" and scenes else {})}
 
 
 def render(project: dict, output_dir: Path, options: dict | None = None,

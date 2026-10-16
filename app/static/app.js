@@ -1271,6 +1271,8 @@
       (Number.isFinite(Number(project.scene_count)) && Number(project.scene_count) > 0
         ? " · " + Number(project.scene_count) + " sahne" : "") +
       (Number(project.duration) > 0 ? " · " + Number(project.duration).toLocaleString("tr-TR", { maximumFractionDigits: 1 }) + " sn" : "") +
+      (Array.isArray(project.emphasis) && project.emphasis.length
+        ? " · Vurgular: " + project.emphasis.map((item) => item.word).join(", ") : "") +
       (project.subtitle_timing === "audio_estimated" ? " · Tahmini altyazı zamanlaması" :
         ["manual", "audio_manual"].includes(project.subtitle_timing) ? " · Elle düzenlenmiş altyazı zamanlaması" : "");
     $("#upload-project").disabled = running || !!project.youtube_url;

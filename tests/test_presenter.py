@@ -159,12 +159,14 @@ class CapsuleThemeTests(unittest.TestCase):
 
 
 class AttentionTests(unittest.TestCase):
-    def test_camera_moves_differ_per_scene_and_stay_inside_the_canvas(self):
+    def test_camera_stays_still_except_at_emphasis_moments(self):
         from app import capsule
         scenes = _host_plan(_kinetic_plan(36, LONG, 2.8))
-        zoom, x, y = capsule.camera(scenes, 36)
-        self.assertEqual(zoom.count("if(lt(it,"), len(scenes) - 1)
-        self.assertIn("(3-2*", zoom)  # Smooth zoom into the widget and back out.
+        self.assertEqual(capsule.camera(scenes, 36, [])[0], "1.0")
+        moments = [{"word": "40", "start": 7.3, "end": 7.7, "score": 3.0, "reason": "sayı"}]
+        zoom, x, y = capsule.camera(scenes, 36, moments)
+        self.assertEqual(zoom.count("(3-2*"), 1)  # One smooth punch-in, no per-scene zoom.
+        self.assertIn("it-7.020", zoom)  # Starts easing just before the word is spoken.
         self.assertTrue(x.startswith("max(0,min(iw-iw/zoom,") and y.startswith("max(0,min(ih-ih/zoom,"))
 
     def test_keyword_is_a_verbatim_word(self):
@@ -286,3 +288,33 @@ class AndroidTests(unittest.TestCase):
             pack = palettes.PACKS[name]
             self.assertTrue(pack["cyber"])
             self.assertTrue(all(palettes.luminance(scene["panel"]) < .05 for scene in pack["scenes"]))
+
+
+class TypographyMapTests(unittest.TestCase):
+    def test_map_scores_numbers_brands_turns_and_questions(self):
+        from app import capsule, emphasis
+        segments = [(0, 3, "Anthropic, Claude modelinin"), (3, 6, "yeni sürümünü duyurdu."),
+                    (6, 9, "Model yüzde 40 daha hızlı."), (9, 12, "Ancak testler bağımsız değil."),
+                    (12, 15, "Peki bu sizin için ne demek?")]
+        words = {w["word"]: w for w in emphasis.typography_map(capsule.caption_chunks(segments))}
+        self.assertEqual(words["40"]["reason"], "sayı")
+        self.assertEqual(words["Claude"]["reason"], "marka")
+        self.assertEqual(words["testler"]["reason"], "dönüş sonrası")
+        self.assertEqual(words["demek?"]["reason"], "soru")
+        self.assertEqual(words["bu"]["score"], 0)  # Short function words are never stressed.
+        self.assertEqual(words["daha"]["score"], 0)
+
+    def test_moments_are_few_and_spaced(self):
+        from app import capsule
+        segments = [(i * 3.0, i * 3.0 + 3, f"Model yüzde {i}0 daha hızlı.") for i in range(10)]
+        moments = capsule.emphasis_moments(segments, 30)
+        self.assertLessEqual(len(moments), round(30 / 6.5))
+        self.assertTrue(all(b["start"] - a["start"] >= 3.5 for a, b in zip(moments, moments[1:])))
+        self.assertEqual(capsule.emphasis_moments([(0, 4, "Sakin bir cümle burada")], 4), [])
+
+    def test_stressed_caption_word_is_enlarged(self):
+        from app import capsule
+        segments = [(0, 2, "Giriş cümlesi burada."), (2, 5, "Model yüzde 40 daha hızlı.")]
+        scenes = _host_plan(_kinetic_plan(5, segments, 2.8))
+        _world, hud, _overlays = capsule.events("Başlık", segments, scenes, 5, None)
+        self.assertTrue(any(r"\fscx175" in line and "40" in line for line in hud))

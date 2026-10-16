@@ -85,3 +85,12 @@ kedi olmamış daha siber bir şey yap böyle teknoloji ile ilgili bir kanal ola
 
 - Seçim: Android spiker (Vega) + koyu siber tema.
 - Otomatik palet koyu siber paketlerden; haberde marka varsa vurgu markanın rengi.
+
+## Tipografi haritası
+
+robota bir kayakçı gözlüğü tak
+
+videolarda zoom u direk yapma tipografi haritası falan oluştursn metni incelesin vurgulanmak isteyen yere o anda vurgulasın ve tüm slaytlarda olmasın
+
+- Vega'ya aynalı kayak gözlüğü.
+- Metin kelime kelime puanlanır (sayı, marka, dönüş kelimesi, güçlü ifade, soru/ünlem); zoom ve büyük altyazı yalnızca seçilen birkaç anda.

@@ -14,16 +14,24 @@ from app.media import MediaError, _host_plan, _kinetic_events, _kinetic_plan, re
 
 SPANS = [(0, 3, "Merhaba teknoloji dünyası!"), (3, 7, "Bu hafta ne oldu?"),
          (7, 11, "Yeni modeller daha hızlı çalışıyor."), (11, 15, "Kaynağı kontrol edin.")]
+LONG = [(i * 3.0, i * 3.0 + 3, f"Cümle numarası {i} teknoloji haberini anlatıyor.") for i in range(12)]
 
 
 class RigTests(unittest.TestCase):
-    def test_host_plan_opens_with_wave_and_mixes_cut_ins_with_picture_in_picture(self):
-        scenes = _host_plan(_kinetic_plan(15, SPANS))
+    def test_host_plan_varies_every_cut_and_returns_to_the_host(self):
+        scenes = _host_plan(_kinetic_plan(36, LONG, 2.8))
         self.assertEqual((scenes[0]["host"], scenes[0].get("wave")), ("big", True))
-        self.assertIn("pip", {scene["host"] for scene in scenes})
+        self.assertEqual({scene["host"] for scene in scenes}, {"big", "pip", "off"})
+        self.assertGreaterEqual(len({scene["layout"] for scene in scenes}), 6)
+        self.assertTrue(all(a["layout"] != b["layout"] for a, b in zip(scenes, scenes[1:])))
         self.assertEqual(scenes[-1]["layout"], "host")
-        self.assertTrue(all(scene["host"] == ("big" if scene["layout"] in ("hook", "host") else "pip")
+        self.assertTrue(all(scene["host"] == {"hook": "big", "host": "big", "keyword": "off"}.get(scene["layout"], "pip")
                             for scene in scenes))
+
+    def test_questions_cut_back_to_the_host(self):
+        scenes = _host_plan(_kinetic_plan(15, SPANS, 2.8))
+        question = next(scene for scene in scenes if "?" in scene["phrase"])
+        self.assertEqual(question["layout"], "host")
 
     def test_mouth_follows_loudness_and_text_while_eyes_blink(self):
         scenes = _host_plan(_kinetic_plan(15, SPANS))
@@ -62,9 +70,9 @@ class RigTests(unittest.TestCase):
             self.assertIsNone(presenter.speech_levels(silent, 2))
 
     def test_user_text_cannot_inject_ass_into_host_name_or_bubbles(self):
-        scenes = _host_plan(_kinetic_plan(15, SPANS))
-        host = {"look": "nova", "name": r"{\pos(1,1)}Nova", "spans": SPANS, "levels": None}
-        content = "\n".join(_kinetic_events("Başlık", [(0, 15, "Metin")], scenes, 15, "aurora", host))
+        scenes = _host_plan(_kinetic_plan(36, LONG, 2.8))
+        host = {"look": "nova", "name": r"{\pos(1,1)}Nova", "spans": LONG, "levels": None}
+        content = "\n".join(_kinetic_events("Başlık", [(0, 36, "Metin")], scenes, 36, "aurora", host))
         self.assertNotIn(r"{\pos(1,1)}", content)
         self.assertIn(r"\clip(", content)  # The PiP badge masks the puppet.
 
@@ -109,9 +117,15 @@ if __name__ == "__main__":
 class CapsuleThemeTests(unittest.TestCase):
     def test_capsule_theme_draws_the_dashboard_chassis_and_escapes_text(self):
         from app import capsule
-        scenes = _host_plan(_kinetic_plan(15, SPANS))
-        host = {"look": "volt", "name": r"V{\b1}olt", "spans": SPANS, "levels": None}
-        content = "\n".join(capsule.events(r"Başlık {\fnX}", [(0, 15, "Metin")], scenes, 15, host))
+        scenes = _host_plan(_kinetic_plan(36, LONG, 2.8))
+        host = {"look": "kuzgun", "name": r"K{\b1}uzgun", "spans": LONG, "levels": None}
+        world, hud = capsule.events(r"Başlık {\fnX}", [(0, 36, "Metin bir iki")], scenes, 36, host)
+        content = "\n".join(world + hud)
+        self.assertIn(r"\clip(", "\n".join(world))
+        self.assertIn("Anahtar kelime", content)
+        # The active caption word is highlighted in lime, one event per word.
+        self.assertEqual(sum("Metin bir iki" in line.replace(r"{\1c&H3AF2D9&}", "").replace(r"{\1c&HFFFFFF&}", "")
+                             for line in hud), 3)
         self.assertIn("Teknoloji gündemi", content)
         self.assertIn(r"\1c&H3AF2D9&", content)  # Lime accent in ASS BGR order.
         self.assertNotIn(r"{\fnX}", content)
@@ -131,8 +145,59 @@ class CapsuleThemeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             result = render({"title": "Kapsül", "script": "Merhaba teknoloji. Bu bir deneme mi? Evet."},
                             Path(temporary), {"speech": False, "video_design": "host", "style": "capsule"})
-            self.assertEqual(result["host_look"], "volt")
+            self.assertEqual(result["host_look"], "kuzgun")
             frame = subprocess.run(["ffmpeg", "-nostdin", "-loglevel", "error", "-ss", "0.5", "-i", result["video_path"],
                                     "-frames:v", "1", "-vf", "crop=10:10:660:400", "-f", "rawvideo", "-pix_fmt", "rgb24",
                                     "pipe:1"], capture_output=True, check=True).stdout
             self.assertGreater(sum(frame) / len(frame), 120)  # Light panel, not a dark scene.
+
+
+class AttentionTests(unittest.TestCase):
+    def test_camera_moves_differ_per_scene_and_stay_inside_the_canvas(self):
+        from app import capsule
+        scenes = _host_plan(_kinetic_plan(36, LONG, 2.8))
+        zoom, x, y = capsule.camera(scenes, 36)
+        self.assertEqual(zoom.count("if(lt(it,"), len(scenes) - 1)
+        self.assertIn("exp(", zoom)  # Punch-ins on cuts.
+        self.assertTrue(x.startswith("max(0,min(iw-iw/zoom,") and y.startswith("max(0,min(ih-ih/zoom,"))
+
+    def test_keyword_is_a_verbatim_word(self):
+        from app import capsule
+        self.assertEqual(capsule.keyword("Pil ömrü “iyileşiyor”, deniyor."), "iyileşiyor")
+
+    def test_effects_mix_leaves_narration_untouched(self):
+        from app import sfx
+        with tempfile.TemporaryDirectory() as temporary:
+            narration, mixed = Path(temporary) / "n.wav", Path(temporary) / "m.wav"
+            with wave.open(str(narration), "wb") as audio:
+                audio.setnchannels(1)
+                audio.setsampwidth(2)
+                audio.setframerate(24000)
+                audio.writeframes(b"\0\0" * 48000)
+            sfx.mix(narration, mixed, [1.0], [1.5])
+            with wave.open(str(narration), "rb") as audio:
+                self.assertEqual(set(audio.readframes(48000)), {0})
+            with wave.open(str(mixed), "rb") as audio:
+                self.assertEqual(audio.getnframes(), 48000)
+                frames = audio.readframes(48000)
+            self.assertGreater(max(frames[2 * 23000:2 * 25000]), 0)
+
+
+class RoamingTests(unittest.TestCase):
+    def test_raven_flies_between_perches_and_lands_on_interface_elements(self):
+        from app import capsule
+        scenes = capsule.perches(_host_plan(_kinetic_plan(36, LONG, 2.8)))
+        rig = presenter.Rig("seed", LONG, scenes, 36, None, roam=True)
+        second = scenes[1]["perch"][0]
+        flying = rig.pose(second[0] + .2)
+        self.assertGreater(flying["wings"][0], 0)
+        landed = rig.pose(second[0] + 1.6)
+        self.assertEqual(landed["roam"][:2], (second[1], second[2]))
+        self.assertTrue(any(len(scene["perch"]) == 2 for scene in scenes))  # Split scenes hop twice.
+
+    def test_raven_head_moves_in_bird_like_snaps(self):
+        from app import capsule
+        scenes = capsule.perches(_host_plan(_kinetic_plan(36, LONG, 2.8)))
+        rig = presenter.Rig("seed", LONG, scenes, 36, None, roam=True)
+        angles = {round(rig.pose(10 + i / 12)["angle"]) for i in range(36)}
+        self.assertGreater(len(angles), 1)

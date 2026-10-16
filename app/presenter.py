@@ -27,6 +27,13 @@ PIVOT = (200.0, 460.0)  # Neck pivot inside the 400x560 local character frame.
 MAX_NAME = 18
 
 LOOKS = {
+    # Kuzgun, the default host: a glossy raven whose beak is the mouth. Spiky crown
+    # feathers, a lime-ringed eye and a lime scarf make the silhouette iconic.
+    # It roams like a real bird: flies between cuts, perches on cards and buttons,
+    # hops, pecks and snaps its head in small jerky steps.
+    "kuzgun": {"label": "Kuzgun", "kind": "raven", "skin": "1B1E29", "shade": "2E3446", "hair": "4C5675",
+               "hairstyle": "none", "glasses": False, "beard": False, "hoodie": "1B1E29", "roam": True,
+               "pivot": (200.0, 400.0), "feet": (200.0, 640.0)},
     # Volt is the Capsule theme's mascot: capsule head, antenna and headphones
     # form a silhouette that stays recognizable even as a flat shadow.
     "volt": {"label": "Volt", "kind": "mascot", "skin": "F2F1EC", "shade": "C9C7C0", "hair": "2B2C2E",
@@ -131,7 +138,10 @@ def _mouth(pose) -> list[tuple[str, str, str]]:
     return parts
 
 
-def body_parts(look: dict, accent: str, wave_angle: float | None) -> list[tuple[str, str, str]]:
+def body_parts(look: dict, accent: str, pose: dict) -> list[tuple[str, str, str]]:
+    if look.get("kind") == "raven":
+        return raven_body_parts(look, accent, pose)
+    wave_angle = pose.get("wave")
     hoodie = look["hoodie"]
     parts = [
         ("neck", look["shade"], _rrect(170, 340, 60, 110, 22)),
@@ -193,7 +203,105 @@ def mascot_head_parts(look: dict, accent: str, pose: dict) -> list[tuple[str, st
     return parts
 
 
+def raven_body_parts(look: dict, accent: str, pose: dict) -> list[tuple[str, str, str]]:
+    """Full-body bird: tail, round body, folding wings, legs and toes."""
+    ink, gloss = look["skin"], look["shade"]
+    left, right = pose.get("wings", (0.0, 0.0))
+    if pose.get("wave") is not None:
+        right = 70 + pose["wave"] * 2.2
+
+    def wing(angle, mirror):
+        shape = [(112, 430), (84, 470), (74, 530), (82, 590), (96, 576), (98, 606), (114, 588), (120, 612),
+                 (134, 580), (138, 500)]
+        shoulder = (118, 440)
+        if mirror:
+            shape = [(400 - x, y) for x, y in shape]
+            shoulder = (282, 440)
+            angle = -angle
+        return _polygon(_rotated([(x - shoulder[0], y - shoulder[1]) for x, y in shape], angle, *shoulder))
+
+    def edge(angle, mirror):
+        shape = [(84, 470), (74, 530), (82, 590), (92, 560), (96, 500)]
+        shoulder = (118, 440)
+        if mirror:
+            shape = [(400 - x, y) for x, y in shape]
+            shoulder = (282, 440)
+            angle = -angle
+        return _polygon(_rotated([(x - shoulder[0], y - shoulder[1]) for x, y in shape], angle, *shoulder))
+
+    toes = []
+    for x in (178, 222):
+        toes.append(_rrect(x - 3, 596, 6, 38, 3))
+        toes.append(_polygon([(x - 2, 630), (x - 22, 642), (x - 18, 646), (x, 636), (x + 18, 646), (x + 22, 642),
+                              (x + 2, 630)]))
+    return [
+        ("tail", ink, _polygon([(168, 560), (138, 650), (170, 638), (184, 660), (200, 640), (216, 660), (230, 638),
+                                (262, 650), (232, 560)])),
+        ("legs", "3A4052", " ".join(toes)),
+        ("body", ink, _ellipse(200, 505, 118, 120)),
+        ("chest", gloss, " ".join(
+            f"m {x - 24} {y} b {x - 24} {y + 20} {x + 24} {y + 20} {x + 24} {y} b {x + 11} {y + 7} {x - 11} {y + 7} {x - 24} {y}"
+            for x, y in ((176, 470), (224, 470), (152, 502), (200, 502), (248, 502), (176, 534), (224, 534),
+                         (200, 566)))),
+        ("wings", ink, wing(left, False) + " " + wing(right, True)),
+        ("wing-gloss", gloss, edge(left, False) + " " + edge(right, True)),
+        ("scarf", accent, "m 128 404 b 160 432 240 432 272 404 b 282 416 284 432 278 444 "
+                          "b 240 468 160 468 122 444 b 116 432 118 416 128 404"),
+        ("scarf-tail", _darker(accent, .82), "m 236 442 l 276 438 l 268 498 l 248 486 l 232 506 l 228 456"),
+    ]
+
+
+def raven_head_parts(look: dict, accent: str, pose: dict) -> list[tuple[str, str, str]]:
+    ink, gloss, brow = look["skin"], look["shade"], look["hair"]
+    gx, gy = pose["gaze"]
+    parts = [
+        ("crown", ink, _polygon([(150, 150), (148, 74), (178, 128), (194, 52), (212, 124), (246, 66), (244, 134),
+                                 (262, 150)])),
+        ("cheeks", ink, _polygon([(94, 300), (70, 272), (96, 268), (78, 236), (104, 240)]) + " " +
+         _polygon([(306, 300), (330, 272), (304, 268), (322, 236), (296, 240)])),
+        ("head", ink, "m 200 112 b 276 112 314 170 314 250 b 314 338 268 404 200 404 "
+                      "b 132 404 86 338 86 250 b 86 170 124 112 200 112"),
+        ("gloss", gloss, "m 130 170 b 156 132 230 124 270 160 b 236 146 170 148 130 170"),
+    ]
+    openness = pose["open"]
+    if openness < .15:
+        def lid(x):
+            return f"m {x-30} 252 b {x-14} 266 {x+14} 266 {x+30} 252 b {x+14} 274 {x-14} 274 {x-30} 252"
+        parts.append(("lids", accent, lid(152) + " " + lid(248)))
+    else:
+        ry = 32 * openness
+        parts.append(("iris", accent, _ellipse(152, 252, 34, ry + 2) + " " + _ellipse(248, 252, 34, ry + 2)))
+        parts.append(("eyes", "FFFFFF", _ellipse(152, 252, 28, ry - 4) + " " + _ellipse(248, 252, 28, ry - 4)))
+        pupil = min(16, max(4, ry - 8))
+        parts.append(("pupils", "101218", _ellipse(152 + gx * 1.3, 254 + gy, 15, pupil) + " " +
+                      _ellipse(248 + gx * 1.3, 254 + gy, 15, pupil)))
+        if openness > .5:
+            parts.append(("shine", "FFFFFF", _ellipse(158 + gx * 1.3, 246 + gy, 5, 5) + " " +
+                          _ellipse(254 + gx * 1.3, 246 + gy, 5, 5)))
+    raise_, tilt = pose["brow"]
+    parts.append(("brows", brow, _brow(150, 208, raise_, tilt + 8, False) + " " + _brow(250, 208, raise_, tilt + 8, True)))
+    kind, w, h = pose["mouth"]
+    gap = 0 if kind == "X" else min(30, h * 1.5)
+    narrow = .8 if kind in ("O", "U") else 1.0
+    if gap:
+        parts.append(("throat", "7A1F2E", _ellipse(200, 312 + gap * .45, 22 * narrow, gap * .55 + 4)))
+        parts.append(("tongue", "E2697C", _ellipse(200, 318 + gap * .6, 11 * narrow, gap * .22 + 2)))
+    lower = 300 + gap
+    parts.append(("beak-low", "3A4052", f"m {_n(200 - 26 * narrow)} {_n(lower)} b {_n(200 - 18 * narrow)} {_n(lower + 22)} "
+                                         f"{_n(200 + 18 * narrow)} {_n(lower + 22)} {_n(200 + 26 * narrow)} {_n(lower)} "
+                                         f"b {_n(200 + 12)} {_n(lower + 34)} {_n(200 - 12)} {_n(lower + 34)} "
+                                         f"{_n(200 - 26 * narrow)} {_n(lower)}"))
+    parts.append(("beak", "4A5163", "m 160 292 b 172 274 228 274 240 292 b 236 322 216 346 200 364 "
+                                    "b 184 346 164 322 160 292"))
+    parts.append(("beak-shine", "6E7790", "m 182 288 b 194 282 206 282 214 288 b 210 300 204 312 200 318 "
+                                          "b 194 306 186 298 182 288"))
+    parts.append(("nostrils", "1B1E29", _ellipse(188, 296, 3, 2) + " " + _ellipse(212, 296, 3, 2)))
+    return parts
+
+
 def head_parts(look: dict, accent: str, pose: dict) -> list[tuple[str, str, str]]:
+    if look.get("kind") == "raven":
+        return raven_head_parts(look, accent, pose)
     if look.get("kind") == "mascot":
         return mascot_head_parts(look, accent, pose)
     skin, shade, hair = look["skin"], look["shade"], look["hair"]
@@ -312,9 +420,21 @@ def _ease_out_back(p: float) -> float:
 class Rig:
     """Evaluates the puppet's pose for any timestamp."""
 
-    def __init__(self, seed: str, spans, scenes, duration: float, levels: list[float] | None):
+    def __init__(self, seed: str, spans, scenes, duration: float, levels: list[float] | None,
+                 roam: bool = False):
         self.spans, self.scenes, self.duration = spans, scenes, duration
         rng = random.Random(zlib.crc32(seed.encode("utf-8")))
+        self.roam = roam
+        self.perches = sorted(perch for scene in scenes for perch in scene.get("perch", ()))
+        # Birds move their heads in quick discrete snaps rather than smooth sways.
+        self.snaps, cursor = [(0.0, 0.0)], 0.0
+        while cursor < duration:
+            cursor += rng.uniform(.45, 1.1)
+            self.snaps.append((cursor, rng.choice((-16, -9, -4, 0, 5, 10, 17))))
+        self.hops, cursor = [], rng.uniform(1.5, 2.5)
+        while cursor < duration:
+            self.hops.append(cursor)
+            cursor += rng.uniform(2.2, 4.0)
         self.levels = levels
         self.blinks, cursor = [], rng.uniform(.8, 1.8)
         while cursor < duration:
@@ -346,6 +466,33 @@ class Rig:
             if scene["start"] <= t < scene["end"]:
                 return index
         return len(self.scenes) - 1
+
+    def flight(self, t: float):
+        """Feet position, scale and flight progress (None while perched)."""
+        if not self.perches:
+            return None
+        index = max([i for i, perch in enumerate(self.perches) if perch[0] <= t], default=0)
+        at, x, y, scale = self.perches[index]
+        since = t - at
+        if index == 0:
+            origin = (x + 320, -260.0, scale)
+            since = max(since, t - at)
+        else:
+            origin = self.perches[index - 1][1:]
+        if since < FLIGHT and (index > 0 or t < at + FLIGHT):
+            p = max(0.0, since) / FLIGHT
+            eased = p * p * (3 - 2 * p)
+            fx = origin[0] + (x - origin[0]) * eased
+            fy = origin[1] + (y - origin[1]) * eased - 170 * math.sin(math.pi * p) * max(.35, scale)
+            fs = origin[2] + (scale - origin[2]) * eased
+            return fx, fy, fs, p, x - origin[0]
+        hop = 0.0
+        for start in self.hops:
+            if 0 <= t - start < .3 and start - at > FLIGHT:
+                hop = 26 * math.sin(math.pi * (t - start) / .3) * scale
+        landing = since - FLIGHT
+        bounce = 14 * scale * math.exp(-landing * 9) * math.sin(landing * 30) if 0 <= landing < .6 else 0
+        return x, y - hop + bounce, scale, None, 0.0
 
     def pose(self, t: float) -> dict:
         index = self.scene_index(t)
@@ -385,10 +532,37 @@ class Rig:
         wave_angle = None
         if scene.get("wave") and since < 1.6:
             wave_angle = 16 * math.sin(since * 2 * math.pi * 2.2)
-        return {"level": level, "angle": angle, "bob": bob, "open": openness, "gaze": gaze, "mouth": mouth,
+        pose = {"level": level, "angle": angle, "bob": bob, "open": openness, "gaze": gaze, "mouth": mouth,
                 "brow": (brow_raise, brow_tilt), "wave": wave_angle, "mode": scene.get("host", "big"),
-                "since": since}
+                "since": since, "head_dy": 0.0, "wings": (0.0, 0.0), "tilt": 0.0}
+        if self.roam:
+            flight = self.flight(t)
+            if flight:
+                fx, fy, fs, progress, dx = flight
+                pose["roam"] = (fx, fy, fs)
+                snap = 0.0
+                for at, target in self.snaps:
+                    if at <= t:
+                        previous, snap, snap_at = snap, target, at
+                pose["angle"] = previous + (snap - previous) * min(1.0, (t - snap_at) / .07) + 3 * energy * math.sin(t * 9)
+                pose["bob"] = -4 * energy
+                pose["gaze"] = (-6 if fx > 380 else 6 if fx < 340 else 0, gaze[1])
+                if progress is not None:
+                    flap = 62 * (.5 + .5 * math.sin(progress * 2 * math.pi * 3.5))
+                    pose["wings"] = (flap, flap)
+                    pose["tilt"] = max(-18.0, min(18.0, dx / 12)) * math.sin(math.pi * progress)
+                    pose["wave"] = None
+                else:
+                    landed = min(t - perch_at for perch_at, *_ in self.perches if perch_at <= t) - FLIGHT
+                    if 0 <= landed < .9:
+                        # Settle the wings, then peck at whatever it landed on.
+                        pose["wings"] = (40 * math.exp(-landed * 8), 40 * math.exp(-landed * 8))
+                        if .25 <= landed < .55:
+                            pose["head_dy"] = 34 * math.sin(math.pi * (landed - .25) / .3)
+        return pose
 
+
+FLIGHT = .55  # Seconds a roaming host takes to fly between perches.
 
 PLACEMENTS = {
     # Local origin and scale per mode; PiP sits in the lower-right badge.
@@ -420,7 +594,16 @@ def puppet_events(*, look_id: str, accent_for, spans, scenes, duration: float,
                   placements: dict | None = None, pip_circle: tuple | None = None) -> list[str]:
     """ASS events drawing the rig at FPS, interpolating translation between frames."""
     look = LOOKS[look_id]
-    rig = Rig(seed, spans, scenes, duration, levels)
+    roam = bool(look.get("roam")) and any(scene.get("perch") for scene in scenes)
+    rig = Rig(seed, spans, scenes, duration, levels, roam=roam)
+    feet_x, feet_y = look.get("feet", (200.0, 560.0))
+    pivot = look.get("pivot", PIVOT)
+
+    def place(pose):
+        if roam and "roam" in pose:
+            fx, fy, fs = pose["roam"]
+            return fx - feet_x * fs, fy - feet_y * fs, fs
+        return placement(pose, placements)
     total = _cs(duration)
     cuts = {_cs(scene["start"]) for scene in scenes} | {total}
     marks = sorted({round(i * 100 / FPS) for i in range(math.ceil(duration * FPS) + 1)} | cuts)
@@ -435,17 +618,22 @@ def puppet_events(*, look_id: str, accent_for, spans, scenes, duration: float,
         pose = rig.pose(t0)
         if rig.scene_index(t0) != rig.scene_index(t1):
             t1 = t0
-        x0, y0, scale = placement(pose, placements)
-        x1, y1, _ = placement(rig.pose(t1), placements)
-        body_y, head_y = pose["bob"] * .5 * scale, pose["bob"] * scale
+        if pose["mode"] == "off" and not (roam and "roam" in pose):
+            continue
+        x0, y0, scale = place(pose)
+        x1, y1, _ = place(rig.pose(t1))
+        body_y = pose["bob"] * .5 * scale
+        head_y = pose["bob"] * scale + pose["head_dy"] * scale
         accent = accent_for(rig.scene_index(t0))
-        clip = pip_clip if pose["mode"] == "pip" else ""
+        clip = pip_clip if pose["mode"] == "pip" and not roam else ""
         start, end = _stamp(a), _stamp(b)
-        pivot_x, pivot_y = x0 + PIVOT[0] * scale, y0 + head_y + PIVOT[1] * scale
+        pivot_x, pivot_y = x0 + pivot[0] * scale, y0 + head_y + pivot[1] * scale
+        feet = (x0 + feet_x * scale, y0 + feet_y * scale)
         common = rf"\bord0\shad0\fscx{_n(scale * 100)}\fscy{_n(scale * 100)}{clip}"
-        groups = ((body_parts(look, accent, pose["wave"]), body_y, ""),
+        lean = rf"\org({_n(feet[0])},{_n(feet[1])})\frz{_n(pose['tilt'])}" if pose["tilt"] else ""
+        groups = ((body_parts(look, accent, pose), body_y, lean),
                   (head_parts(look, accent, pose), head_y,
-                   rf"\org({_n(pivot_x)},{_n(pivot_y)})\frz{_n(pose['angle'])}"))
+                   rf"\org({_n(pivot_x)},{_n(pivot_y)})\frz{_n(pose['angle'] + pose['tilt'])}"))
         for parts, offset, rotation in groups:
             move = rf"\move({_n(x0)},{_n(y0 + offset)},{_n(x1)},{_n(y1 + offset)})"
             for _name, color, path in parts:

@@ -659,12 +659,14 @@ def create_app(data_dir=None, testing=False):
             raise ValueError('Konuşma hızı 100 ile 240 arasında olmalı.')
         if opts.get('video_design', 'kinetic') not in {'kinetic', 'host', 'classic'}:
             raise ValueError('Video tasarımı anlatıcılı, animasyonlu sahneler veya klasik olmalı.')
-        if opts.get('host_look', 'volt') not in presenter.LOOKS:
+        if opts.get('host_look', 'kuzgun') not in presenter.LOOKS:
             raise ValueError('Geçersiz anlatıcı karakteri.')
         if not isinstance(opts.get('host_name', ''), str) or len(opts.get('host_name', '')) > presenter.MAX_NAME:
             raise ValueError(f'Anlatıcı adı en fazla {presenter.MAX_NAME} karakter olabilir.')
+        if not isinstance(opts.get('sfx', True), bool):
+            raise ValueError('Ses efektleri seçeneği true veya false olmalı.')
         opts = {key: opts[key] for key in ('style', 'tts_provider', 'speech', 'speech_rate', 'video_design',
-                                           'host_look', 'host_name') if key in opts}
+                                           'host_look', 'host_name', 'sfx') if key in opts}
         with jobs_lock:
             result = project(ident)
             if is_busy(ident):

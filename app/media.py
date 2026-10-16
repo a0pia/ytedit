@@ -21,7 +21,7 @@ import wave
 from typing import Callable
 
 from .audio import AudioError, inspect_audio, normalize_audio, plan_captions, validate_captions
-from . import capsule, presenter
+from . import capsule, presenter, sfx
 
 
 class MediaError(RuntimeError):
@@ -305,10 +305,10 @@ def _source_phrase(sentence: str, position: float = .5) -> str:
     return normalized[matches[start].start():matches[end - 1].end()]
 
 
-def _kinetic_plan(duration: float, spans: list[tuple[float, float, str]]) -> list[dict]:
+def _kinetic_plan(duration: float, spans: list[tuple[float, float, str]], pace: float = 3.6) -> list[dict]:
     hook = min(2.6, duration * .45)
     remaining = duration - hook
-    count = max(1, round(remaining / 3.6))
+    count = max(1, round(remaining / pace))
     scenes = [{"start": 0.0, "end": hook, "layout": "hook", "phrase": ""}]
     for index in range(count):
         start = hook + remaining * index / count
@@ -320,7 +320,7 @@ def _kinetic_plan(duration: float, spans: list[tuple[float, float, str]]) -> lis
     return scenes
 
 
-def _uploaded_kinetic_plan(duration: float, spans: list[tuple[float, float, str]]) -> list[dict]:
+def _uploaded_kinetic_plan(duration: float, spans: list[tuple[float, float, str]], pace: float = 2.5) -> list[dict]:
     """Cut on recorded caption boundaries, including manually corrected timings."""
     hook = min(2.6, duration * .45)
     boundaries = [end for _start, end, _text in spans if hook <= end < duration - .08]
@@ -329,7 +329,7 @@ def _uploaded_kinetic_plan(duration: float, spans: list[tuple[float, float, str]
     scenes = [{"start": 0.0, "end": hook, "layout": "hook", "phrase": ""}]
     cursor = hook
     while cursor < duration - .000001:
-        candidates = [end for _start, end, _text in spans if end >= cursor + 2.5 and end < duration - .08]
+        candidates = [end for _start, end, _text in spans if end >= cursor + pace and end < duration - .08]
         end = candidates[0] if candidates else duration
         span = max(spans, key=lambda item: max(0, min(end, item[1]) - max(cursor, item[0])))
         scenes.append({"start": cursor, "end": end,
@@ -339,19 +339,35 @@ def _uploaded_kinetic_plan(duration: float, spans: list[tuple[float, float, str]
     return scenes
 
 
+# Attention rhythm for hosted videos: every cut changes composition (host big,
+# host in the corner, or no host at all) so a viewer whose attention drifts is
+# pulled back by a visibly new frame. Questions always cut back to the host.
+HOST_ROTATION = ("editorial", "keyword", "host", "card", "quote", "split", "statement", "host")
+HOST_MODES = {"host": "big", "keyword": "off"}
+
+
 def _host_plan(scenes: list[dict]) -> list[dict]:
-    """Recast kinetic scenes as a hosted show: intro, PiP commentary and cut-ins."""
+    """Recast kinetic scenes as a hosted show with a varied attention rhythm."""
     hosted = []
     for index, scene in enumerate(scenes):
         scene = dict(scene)
         if index == 0:
             scene.update(host="big", wave=True)
         else:
+            previous = hosted[-1]["layout"]
+            layout = HOST_ROTATION[(index - 1) % len(HOST_ROTATION)]
+            if "?" in scene.get("phrase", "") and previous != "host":
+                layout = "host"
             if index == len(scenes) - 1 and len(scenes) >= 3:
-                scene["layout"] = "host"
-            else:
-                scene["layout"] = ("editorial", "host", "card", "statement")[(index - 1) % 4]
-            scene["host"] = "big" if scene["layout"] == "host" else "pip"
+                layout = "host"
+                if previous == "host" and index > 1:
+                    # The sign-off belongs to the host; vary the scene before it instead.
+                    hosted[-1].update(layout="statement", host="pip")
+                    previous = "statement"
+            if layout == previous:
+                layout = HOST_ROTATION[index % len(HOST_ROTATION)]
+            scene["layout"] = layout
+            scene["host"] = HOST_MODES.get(layout, "pip")
         hosted.append(scene)
     return hosted
 
@@ -419,7 +435,7 @@ def _kinetic_events(title: str, segments: list[tuple[float, float, str]],
             tag_width = round(sum(map(_glyph_width, name)) * 24 + 40)
             shape(start, end, 5, _round_rect(tag_width, 44, 22), accent, r"\move(-200,868,40,868,0,320)")
             text(start, end, name, 60, 878, 24, base, extra=r"\fsp1\move(-180,878,60,878,0,320)", layer=5)
-        elif host:
+        elif host and scene.get("host") == "pip" and not scene.get("perch"):
             cx, cy, radius = presenter.PIP_CIRCLE
             shape(start, end, 3, _circle(round(radius)), base, rf"\pos({cx-radius},{cy-radius})", r"\fad(160,0)")
             ring = presenter.screen_circle(cx, cy, radius) + " " + presenter.screen_circle(cx, cy, radius - 7, reverse=True)
@@ -545,7 +561,12 @@ Style: Motion,{font},44,&H00FFFFFF,&H000000FF,&H00120B07,&H00000000,-1,0,0,0,100
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
     if scenes and style == "capsule":
-        events = capsule.events(title, segments, scenes, duration, host)
+        world, hud = capsule.events(title, segments, scenes, duration, host)
+        # Separate layers let FFmpeg move a camera over the world under a still HUD.
+        (output_dir / "world.ass").write_text(header + "\n".join(world) + "\n", encoding="utf-8")
+        (output_dir / "hud.ass").write_text(header + "\n".join(hud) + "\n", encoding="utf-8")
+        # The combined export keeps the HUD above the world: layer n becomes 1n.
+        events = world + [line.replace("Dialogue: ", "Dialogue: 1", 1) for line in hud]
     elif scenes:
         events = _kinetic_events(title, segments, scenes, duration, style, host)
     else:
@@ -702,12 +723,15 @@ def _render_work(project: dict, output_dir: Path, options: dict | None = None,
     design = options.get("video_design", "kinetic")
     if design not in ("kinetic", "host", "classic"):
         raise MediaError("Desteklenmeyen video tasarımı. kinetic, host veya classic seçin.")
-    look = options.get("host_look", "volt")
+    look = options.get("host_look", "kuzgun")
     if look not in presenter.LOOKS:
         raise MediaError("Desteklenmeyen anlatıcı görünümü. " + ", ".join(presenter.LOOKS) + " seçin.")
     if not isinstance(options.get("host_name", ""), str):
         raise MediaError("Anlatıcı adı metin olmalı.")
     host_name = presenter.clean_name(options.get("host_name"), look)
+    effects = options.get("sfx", True)
+    if not isinstance(effects, bool):
+        raise MediaError("Ses efektleri seçeneği true veya false olmalı.")
     try:
         rate = int(options.get("speech_rate", 170))
     except (ValueError, TypeError):
@@ -797,11 +821,14 @@ def _render_work(project: dict, output_dir: Path, options: dict | None = None,
             combined.setsampwidth(2)
             combined.setframerate(SAMPLE_RATE)
             combined.writeframes(b"\0\0" * math.ceil(cursor * SAMPLE_RATE))
-    scenes = ((_uploaded_kinetic_plan(cursor, spans) if provider == "uploaded" else _kinetic_plan(cursor, spans))
+    pace = {"kinetic": (3.6, 2.5), "host": (2.8, 2.2)}.get(design, (3.6, 2.5))
+    scenes = ((_uploaded_kinetic_plan(cursor, spans, pace[1]) if provider == "uploaded" else _kinetic_plan(cursor, spans, pace[0]))
               if design != "classic" else None)
     host = None
     if design == "host":
         scenes = _host_plan(scenes)
+        if presenter.LOOKS[look].get("roam"):
+            scenes = capsule.perches(scenes)
         host = {"look": look, "name": host_name, "spans": spans,
                 "levels": presenter.speech_levels(narration_path, cursor) if speech else None}
     subtitle_path, _ = _write_subtitles(output_dir, title, segments, cursor, scenes=scenes, style=style, host=host)
@@ -809,6 +836,17 @@ def _render_work(project: dict, output_dir: Path, options: dict | None = None,
         _background(output_dir / "background.ppm", style)
         inputs = ["-loop", "1", "-framerate", "24", "-i", "background.ppm", "-i", "narration.wav"]
         filters = "scale=720:1280,zoompan=z='min(zoom+0.00020,1.035)':x='iw/2-iw/zoom/2':y='ih/2-ih/zoom/2':d=1:s=720x1280:fps=24,ass=captions.ass"
+    elif style == "capsule":
+        audio_track = "narration.wav"
+        if effects:
+            whooshes, pops = capsule.sfx_cues(scenes)
+            sfx.mix(narration_path, output_dir / "mix.wav", whooshes, pops)
+            audio_track = "mix.wav"
+        width, height = round(720 * capsule.CANVAS_SCALE), round(1280 * capsule.CANVAS_SCALE)
+        inputs = ["-f", "lavfi", "-i", f"color=c=0xE8E7E2:s={width}x{height}:r=24:d={cursor:.6f}", "-i", audio_track]
+        zoom, x, y = capsule.camera(scenes, cursor)
+        filters = (f"ass=world.ass,zoompan=z='{zoom}':x='{x}':y='{y}':d=1:s=720x1280:fps=24,"
+                   "ass=hud.ass")
     else:
         inputs = ["-f", "lavfi", "-i", f"color=c=0x111B22:s=720x1280:r=24:d={cursor:.6f}", "-i", "narration.wav"]
         filters = "ass=captions.ass"
@@ -832,7 +870,8 @@ def _render_work(project: dict, output_dir: Path, options: dict | None = None,
         raise MediaError("Video çıktısı doğrulanamadı. Yeniden deneyin.")
     for path in audio_files:
         path.unlink(missing_ok=True)
-    (output_dir / "background.ppm").unlink(missing_ok=True)
+    for leftover in ("background.ppm", "mix.wav", "world.ass", "hud.ass"):
+        (output_dir / leftover).unlink(missing_ok=True)
     report(98)
     return {"video_path": str(video_path), "subtitle_path": str(subtitle_path),
             "duration": cursor if provider == "uploaded" else round(actual_duration, 2), "speech": speech,

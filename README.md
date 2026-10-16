@@ -166,11 +166,13 @@ Bütün grafikler uygulama içinde üretilir. Bu özellik ücretli stok video, m
 
 Varsayılan video teması **Kapsül**'dür: kömür rengi çerçeve içinde açık sıcak gri bir panel, hap biçimli çipler, kırmızıdan yeşile geçen bir zaman çizelgesi, limon düğümler, yuvarlak kartlar ve koyu altyazı kapsülü. Alt kısımdaki beyaz zaman çubuğu her sahneyi bir nokta olarak gösterir ve ilerleme göstergesi olarak çalışır. Renk, tipografi, yerleşim, bileşen, hareket ve karakter kuralları [docs/TEMA.md](docs/TEMA.md) dosyasında tanımlıdır. Aurora ve Gün batımı temaları seçenek olarak kalır.
 
-Temanın imza karakteri **Volt**'tur: kapsül biçimli baş, limon LED gözlü koyu vizör, konuşurken sesin şiddetiyle parlayan anten, limon kulaklık ve mikrofon. Siluet tek başına tanınacak şekilde tasarlandı. Diğer karakterler (Nova, Kaan, Ece) de seçilebilir.
+Temanın imza karakteri **Kuzgun**'dur: dikenli taç tüyleri, limon halkalı gözler, limon atkı ve sese göre açılan gaga. Gerçek bir kuş gibi davranır: kesmelerde kanat çırparak uçar, altyazı kapsülüne, butonlara, anahtar kelimeye ve kartlara konar, konunca gagalar, beklerken başını kesik hareketlerle çevirip zıplar; kamera kuşun konduğu yere yakınlaşıp ardından içeriğe kayar. Diğer karakterler (Volt, Nova, Kaan, Ece) de seçilebilir.
+
+İzleyiciyi videoda tutmak için Kapsül teması bir **dikkat ritmi** uygular: yaklaşık 2,8 saniyede bir kesme, ardışık sahnelerde farklı düzen (odak kartı, anahtar kelime, konuşma balonu, gündem kartı, alıntı, adım adım, yakın plan), anlatıcının büyük plan / köşe / hiç görünmeme arasında değişmesi, soru cümlelerinde anlatıcıya dönüş, her sahnede farklı kamera hareketi (yakınlaşma, itme, geri çekilme, kayma), söylenen kelimenin altyazıda limon renkte yanması ve yerel olarak sentezlenen whoosh/pop geçiş sesleri. Ses efektleri panelden kapatılabilir (API: `sfx: false`). Kurallar [docs/TEMA.md](docs/TEMA.md) içinde.
 
 ![Kapsül teması: giriş, odak kartı, ara sahne, gündem etiketi, yakın plan ve PiP](docs/capsule-scenes.png)
 
-API'de `style: "capsule"` kullanılır. Geriye uyumluluk için API'nin varsayılan teması `aurora` olarak kalır; arayüz yeni projelerde Kapsül + Anlatıcılı + Volt seçili gelir.
+API'de `style: "capsule"` kullanılır. Geriye uyumluluk için API'nin varsayılan teması `aurora` olarak kalır; arayüz yeni projelerde Kapsül + Anlatıcılı + Kuzgun seçili gelir.
 
 ## Anlatıcılı sunum (karakter)
 
@@ -183,11 +185,11 @@ API'de `style: "capsule"` kullanılır. Geriye uyumluluk için API'nin varsayıl
 
 Karakter, Adobe Character Animator, PNGTuber ve VTuber modellerindeki gibi parçalara ayrılmış bir **rig**'dir: gövde, baş, gözler, göz bebekleri, kaşlar ve ağız ayrı ayrı hareket eder. Ağız, seslendirmenin ses yüksekliğine göre açılır; o anda okunan altyazı harfine göre A/E/I/O/U, M-B-P ve F-V ağız şekilleri (visemler) seçilir. Gözler kendiliğinden kırpışır ve kısa bakış değişimleri yapar; kaşlar konuşma enerjisinde, sahne geçişlerinde ve soru/ünlem cümlelerinde kalkar; baş hafifçe sallanır ve vurgu anlarında eğilir. Sessiz videoda ağız hareketi altyazı metninden tahmin edilir. Bu senkron ses yüksekliği ve metin konumundan **tahmin edilir**; konuşma tanıma veya fonem hizalaması yapılmaz.
 
-Hazır dört karakter vardır: **Volt** (kapsül kafalı maskot, varsayılan), **Nova** (mor perçemli, gözlüklü), **Kaan** (sakallı, gözlüklü) ve **Ece** (küt saçlı). Anlatıcı adını panelden değiştirebilirsiniz (en fazla 18 karakter). Karakterler kod içinde vektör çizimlerle üretilir (`app/presenter.py`); indirilen görsel, font veya lisanslı karakter kullanılmaz. Karakterin rengi ve kıyafeti, `LOOKS` sözlüğüne yeni bir görünüm eklenerek özelleştirilebilir.
+Hazır beş karakter vardır: **Kuzgun** (varsayılan), **Volt** (kapsül kafalı maskot), **Nova** (mor perçemli, gözlüklü), **Kaan** (sakallı, gözlüklü) ve **Ece** (küt saçlı). Anlatıcı adını panelden değiştirebilirsiniz (en fazla 18 karakter). Karakterler kod içinde vektör çizimlerle üretilir (`app/presenter.py`); indirilen görsel, font veya lisanslı karakter kullanılmaz. Karakterin rengi ve kıyafeti, `LOOKS` sözlüğüne yeni bir görünüm eklenerek özelleştirilebilir.
 
 ![Anlatıcılı videodan sahneler: üç karakter, PiP ve konuşma balonu](docs/presenter-scenes.png)
 
-API'de `video_design: "host"`, `host_look: "volt" | "nova" | "kaan" | "ece"` ve isteğe bağlı `host_name` kullanılır. API'nin varsayılan tasarımı geriye uyumluluk için `kinetic` kalır; arayüz yeni projelerde Anlatıcılı tasarımı seçili getirir.
+API'de `video_design: "host"`, `host_look: "kuzgun" | "volt" | "nova" | "kaan" | "ece"` ve isteğe bağlı `host_name` kullanılır. API'nin varsayılan tasarımı geriye uyumluluk için `kinetic` kalır; arayüz yeni projelerde Anlatıcılı tasarımı seçili getirir.
 
 ## 0.4: Hazır ses dosyasıyla kurgu
 

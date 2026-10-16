@@ -3749,3 +3749,10 @@ dialog .inline-warning {
     scroll-behavior: auto !important;
   }
 }
+.check-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  font-size: 12px;
+}

@@ -2,7 +2,7 @@
 
 Kapsül, Hype Studio videolarının varsayılan sunum temasıdır. Referansı, açık sıcak gri yüzeyli, kalın kömür rengi çerçeveli, hap (pill) biçimli düğmeler ve neon limon vurgularıyla kurulmuş bir veri paneli (dashboard) tasarımıdır. Videolar bir "yayın stüdyosu paneli" gibi görünür: haber bir zaman çizelgesi üzerinde ilerler, kartlar düğümlere bağlanır, anlatıcı karakter bu panelin sunucusudur.
 
-Uygulama: `app/capsule.py` (sahne düzeni), `app/presenter.py` (anlatıcı rig'i). API'de `style: "capsule"`.
+Uygulama: `app/capsule.py` (sahne düzeni ve kamera), `app/presenter.py` (anlatıcı rig'i), `app/sfx.py` (geçiş sesleri). API'de `style: "capsule"`.
 
 ## 1. İlke
 
@@ -73,38 +73,69 @@ Karanlık sahne yoktur; kontrast koyu kartlar (`ink`) ile sağlanır.
 - **Altyazı kapsülü:** `ink` dolgu, 36 px köşe, beyaz kalın metin.
 - **Alt zaman çubuğu:** Beyaz kapsül; solda koyu takvim dairesi, her sahne için bir nokta; geçerli sahne koyu kapsül bölüm ve limon nokta ile işaretlenir. İlerleme çubuğu görevini görür.
 
-## 6. Hareket
+## 6. Hareket ve kamera
+
+Video iki katmandan oluşur: **dünya** (panel içeriği, kartlar, anlatıcı) ve **arayüz** (çerçeve, sekme, çipler, altyazı kapsülü, alt zaman çubuğu). Dünya 1,2 kat büyük bir tuvale çizilir ve sanal bir kamera üzerinde hareket eder; arayüz sabit kalır. Böylece görüntü sürekli canlıdır ama göz her zaman tutunacak sabit bir çerçeve bulur.
+
+| Sahne | Kamera |
+| --- | --- |
+| Giriş / Ara sahne | Yüze "punch-in": kesmede %12 yakın, 0,3 sn'de yerine oturur, sonra yavaş itme |
+| Anahtar kelime | Sert punch-in (%18) |
+| Odak, Yakın plan | Yavaş itme (push-in) |
+| Gündemde | Yavaş geri çekilme (pull-out) |
+| Senaryodan | Yatay kayma (drift) |
+| Adım adım | İkinci karta doğru aşağı kayma (tilt) |
 
 | Öğe | Hareket | Süre |
 | --- | --- | --- |
-| Düğüm | Ölçek 0 → 110 → 100 | 380 ms |
+| Düğüm | Ölçek 0 → 112 → 100 | 380 ms |
 | Zaman çizgisi | Soldan sağa çizim | 520 ms |
 | Kart | 40 px aşağıdan kayarak + solma | 320 ms |
-| Başlık satırları | Sırayla yukarı kayma, 100 ms gecikmeli | 380 ms |
-| Dalga | Yatayda sürekli kayma | sahne boyunca |
-| Sahne geçişi | Panel renginde dikey "kapak" perdesi + limon şerit | 420 ms |
+| Anahtar kelime | %150'den %100'e düşüş + limon kapsül açılması | 200 ms |
+| Sahne geçişi | Panel renginde perde + limon tarama çizgisi + whoosh sesi | 420 ms |
 
-Hareketler yumuşak ve kısa: panel sakin kalır, karakter canlı olandır.
+## 7. Dikkat ritmi (izleyiciyi videoda tutmak)
 
-## 7. Anlatıcı karakter: Volt
+Amaç, dikkati dağılan izleyicinin birkaç saniye içinde yeniden videoya bağlanmasıdır. Kurallar:
 
-Volt, temanın maskotudur ve bir bakışta tanınması için tek bir siluete dayanır: **kapsül baş + anten + kulaklık**.
+1. **Her 2,5–3 saniyede bir kesme.** Sahne süresi hedefi 2,8 sn (yüklenen seste altyazı sınırlarına göre en az 2,2 sn).
+2. **Ardışık iki sahne aynı düzende olmaz.** Döngü: Odak → Anahtar kelime → Ara sahne → Gündemde → Senaryodan → Adım adım → Yakın plan → Ara sahne.
+3. **Kompozisyon da değişir:** anlatıcı büyük plan → köşe penceresi → hiç yok (anahtar kelime) → tekrar büyük plan. Göz, yeni bir çerçeve gördüğünde odağı yeniden toplar.
+4. **Soru cümleleri anlatıcıya döner.** Senaryodaki "?" cümlesi her zaman karakterin konuşma balonuyla gösterilir (yeniden kanca).
+5. **Kapanış anlatıcıyla yapılır** ("Son söz").
+6. **Kelime kelime altyazı:** o an söylenen kelime limon renkte yanar; göz sesi takip eder.
+7. **Ses ipuçları:** her kesmede yumuşak whoosh, anahtar kelime ve ikinci kart gelişinde kısa "pop". Sesler uygulama içinde sentezlenir, anlatımın altında kalır ve kapatılabilir.
+8. **Her hareket bir işe yarar.** Süs için hareket eklenmez; hareket ya yeni bilgiyi ya da sahne değişimini işaret eder.
 
-- **Baş:** Dikey kapsül, `card` tonunda. Siluet tek başına (siyah gölge olarak bile) tanınmalı.
-- **Vizör:** Yüzü yatay kesen koyu `ink` kapsül; gözler bunun üzerinde **limon LED kapsüllerdir**. Göz kırpma LED'in ince çizgiye inmesidir; bakış LED'lerin vizör içinde kaymasıdır.
-- **Kaşlar:** Vizörün üstünde iki koyu hap; sahne geçişlerinde, soru/ünlem cümlelerinde kalkar.
-- **Anten:** Tepedeki limon top, konuşurken sesin şiddetine göre parlar — karakterin "yayında" işareti.
-- **Kulaklık:** Limon kulaklık kapları ve koyu bant; sol kaptan ağza uzanan mikrofon.
-- **Ağız:** Seslendirmenin şiddetine ve altyazıdaki harfe göre A/E/I/O/U, M-B-P, F-V şekilleri.
-- **Gövde:** Koyu kapüşonlu, göğüste limon şimşek rozeti.
+## 8. Anlatıcı karakter: Kuzgun
 
-Kullanım kuralları: Volt'un rengi değiştirilmez (marka işareti), limon yalnızca LED gözler, anten, kulaklık ve rozette bulunur. Büyük planda baş çerçevenin yatay ortasındadır; PiP rozetinde 100 px yarıçaplı dairede, `ink` halka ve limon iç halka ile görünür. Adı alt bantta koyu hap etiketle yazılır.
+Kuzgun, temanın imza karakteridir. Bir bakışta tanınması için silueti üç öğeye dayanır: **dikenli taç tüyleri, büyük gaga, limon halkalı gözler**.
 
-Alternatif karakterler (Nova, Kaan, Ece) aynı rig'i kullanır; Kapsül temasında da çalışırlar ama temanın imza karakteri Volt'tur.
+- **Gövde ve baş:** Parlak kuzgun siyahı (`#1B1E29`), başın üstünde mavi-mor bir parlama.
+- **Gözler:** Beyaz göz, koyu göz bebeği, limon iris halkası. Göz kırpınca limon bir çizgiye iner; bakış göz bebeklerinin kaymasıdır.
+- **Kaşlar:** Gri-mavi tüy kaşlar; sahne geçişlerinde, soru ve ünlemlerde kalkar.
+- **Gaga = ağız:** Üst gaga sabit, alt gaga seslendirmenin şiddetine göre açılır. O/U seslerinde gaga daralır, M/B/P'de kapanır.
+- **Atkı:** Limon atkı ve sarkan ucu; temanın vurgu rengini karaktere taşır.
+- **El sallama:** Girişte kanadını kaldırıp sallar.
 
-## 8. Yapılmaması gerekenler
+### Gerçek kuş gibi davranış
+
+Kuzgun sabit bir pencerede durmaz; ekranda dolaşır:
+
+- **Uçuş:** Her kesmede kanat çırparak bir yay çizip yeni yerine uçar (0,55 sn), uçarken gövdesi gittiği yöne eğilir.
+- **Konma noktaları:** Arayüzün kendisine konar: girişte ve ara sahnelerde altyazı kapsülünün üstüne (büyük plan), odak sahnesinde altyazı kenarının sağına, "Gündemde" butonunun, anahtar kelime kapsülünün, alıntı işaretinin ve "+" butonunun üstüne. Adım adım sahnesinde birinci karttan ikinci karta seker.
+- **Konunca:** Kanatlarını toplar, küçük bir yaylanma yapar ve konduğu şeyi gagalar.
+- **Beklerken:** Başını kuşlar gibi kısa, kesik hareketlerle çevirir; ara sıra yerinde zıplar; içeriğe doğru bakar.
+- **Kamera:** Kuş konarken kamera onun üzerine yakınlaşır, sonra yavaşça sahnenin içeriğine kayar. Göz önce canlı olanı, sonra bilgiyi bulur.
+
+Kullanım kuralları: Kuzgun'un renkleri değiştirilmez; limon yalnızca iris, atkı ve göz kırpma çizgisinde bulunur. Büyük planda baş çerçevenin yatay ortasındadır; köşe penceresinde koyu daire, limon halka ve altta limon isim etiketiyle görünür.
+
+Alternatif karakterler (Volt, Nova, Kaan, Ece) aynı rig'i kullanır.
+
+## 9. Yapılmaması gerekenler
 
 - Limon metni açık zemine yazmak.
 - Kartları keskin köşeli veya gölgesi ağır yapmak.
 - Senaryoda olmayan rakamları grafik etiketi olarak göstermek.
 - Aynı anda ikiden fazla kartı ekranda tutmak; anlatıcıya yer kalmalı.
+- Aynı sahne düzenini art arda kullanmak veya bir sahneyi 4 saniyeden uzun tutmak.

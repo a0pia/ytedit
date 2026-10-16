@@ -44,3 +44,17 @@ daha ikonik bi karakter yapabilir miyiz birde sunumun temasını beğenmiyorum �
 - Referans: açık gri panel, koyu çerçeve, hap düğmeler, neon limon vurgu, zaman çizelgesi ve kartlı bir dashboard.
 - Tema kuralları `docs/TEMA.md` dosyasında; video sahneleri bu temaya göre (`style: "capsule"`).
 - Siluetiyle tanınan maskot anlatıcı: Volt.
+
+## Kuzgun ve dikkat ritmi için eklenen istek
+
+karakteri beğenmedim karakter bir kuzgun olsun birde sahneler hep birbiriyle aynı gibi böyle öyle olmalı ki izleyen kişi hep videoya odak kalsın dikkati dağılsa bile tekrar odağını toplayabilsin
+
+- Varsayılan anlatıcı: Kuzgun (gaga ağız gibi açılır).
+- Kısa ve değişken sahneler, kamera hareketleri, kelime kelime altyazı ve geçiş sesleriyle dikkat ritmi.
+
+## Kuzgunun gerçek kuş gibi davranması için eklenen istek
+
+gerçek bir kuş gibi yap butonların üstüne falan veya focus falan videoya zoom atsın falan dinamik bir video olsun
+
+- Kuzgun sahneler arasında uçar, butonlara/kartlara/altyazı kenarına konar, gagalar, zıplar.
+- Kamera kuşun konduğu yere yakınlaşır, ardından içeriğe kayar.

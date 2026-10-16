@@ -1352,7 +1352,8 @@
     });
     $("#editor-original").hidden = !original.childElementCount;
     $("#video-design").value = project.render_options?.video_design || project.design || "host";
-    $("#host-look").value = project.render_options?.host_look || "volt";
+    $("#host-look").value = project.render_options?.host_look || "kuzgun";
+    $("#render-sfx").checked = project.render_options?.sfx !== false;
     const savedStyle = project.render_options?.style || "capsule";
     const styleInput = $(`input[name="render-style"][value="${savedStyle}"]`);
     if (styleInput) styleInput.checked = true;
@@ -1512,7 +1513,8 @@
           style: $('input[name="render-style"]:checked').value,
           video_design: $("#video-design").value,
           ...($("#video-design").value === "host"
-            ? { host_look: $("#host-look").value, host_name: $("#host-name").value.trim() } : {}),
+            ? { host_look: $("#host-look").value, host_name: $("#host-name").value.trim(),
+                sfx: $("#render-sfx").checked } : {}),
           speech: provider !== "none",
           tts_provider: ["elevenlabs", "uploaded"].includes(provider) ? provider : "local",
         };

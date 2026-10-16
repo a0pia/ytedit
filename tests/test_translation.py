@@ -2,7 +2,9 @@
 from copy import deepcopy
 from datetime import datetime, timezone
 import json
+import shutil
 import sqlite3
+import subprocess
 import threading
 import time
 
@@ -442,3 +444,34 @@ def test_invalid_presenter_options_are_rejected_before_rendering(studio, monkeyp
     monkeypatch.setattr(server.media, "render", lambda *args: pytest.fail("Invalid presenter rendered"))
     response = client.post(f"/api/projects/{project['id']}/render", json=payload)
     assert response.status_code == 400
+
+
+def test_logo_upload_is_normalized_listed_and_removable(studio, tmp_path):
+    if not shutil.which("ffmpeg"):
+        pytest.skip("FFmpeg is required")
+    _, client, data = studio
+    image = tmp_path / "logo.png"
+    subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "color=c=red:s=64x64", "-frames:v", "1",
+                    str(image)], check=True)
+    response = client.post("/api/logos/claude", data={"file": (image.open("rb"), "logo.png")},
+                           content_type="multipart/form-data")
+    assert response.status_code == 200, response.get_json()
+    listing = client.get("/api/logos").get_json()
+    assert next(item for item in listing["brands"] if item["slug"] == "claude")["has_logo"]
+    assert any(item["id"] == "anthropic" for item in listing["palettes"])
+    assert client.get("/api/logos/claude/image").status_code == 200
+    assert client.post("/api/logos/unknown", data={"file": (image.open("rb"), "logo.png")},
+                       content_type="multipart/form-data").status_code == 400
+    bad = tmp_path / "logo.txt"
+    bad.write_text("not an image")
+    assert client.post("/api/logos/claude", data={"file": (bad.open("rb"), "logo.png")},
+                       content_type="multipart/form-data").status_code in (400, 500)
+    assert client.delete("/api/logos/claude").status_code == 200
+    assert not next(item for item in client.get("/api/logos").get_json()["brands"] if item["slug"] == "claude")["has_logo"]
+
+
+def test_invalid_palette_is_rejected(studio, monkeypatch):
+    _, client, _ = studio
+    project = create(client)
+    monkeypatch.setattr(server.media, "render", lambda *args: pytest.fail("Invalid palette rendered"))
+    assert client.post(f"/api/projects/{project['id']}/render", json={"palette": "nope"}).status_code == 400

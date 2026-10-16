@@ -23,10 +23,11 @@ import requests
 from werkzeug.exceptions import HTTPException
 from werkzeug.utils import secure_filename
 
-from . import audio, media, news, presenter, writing, youtube, translation
+from . import audio, media, news, palettes, presenter, writing, youtube, translation
 
 ROOT = Path(__file__).resolve().parent.parent
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
+MAX_LOGO_BYTES = 3 * 1024 * 1024
 ACTIVE_STATUSES = {'queued', 'rendering', 'uploading', 'translating', 'processing_audio'}
 VIDEO_FIELDS = ('video_url', 'subtitle_url', 'video_path', 'duration', 'render_options',
                 'provider', 'voice', 'speech', 'subtitle_timing', 'scene_count', 'design')
@@ -237,6 +238,9 @@ def create_app(data_dir=None, testing=False):
         if request.method == 'POST' and re.fullmatch(r'/api/projects/[a-f0-9]{32}/audio', request.path):
             request.max_content_length = MAX_UPLOAD_BYTES + 64 * 1024
             request.max_form_parts = 4
+        if request.method == 'POST' and re.fullmatch(r'/api/logos/[a-z0-9-]{1,20}', request.path):
+            request.max_content_length = MAX_LOGO_BYTES + 64 * 1024
+            request.max_form_parts = 4
         if app.testing:
             return
         # Block DNS rebinding and cross-origin writes to the local API.
@@ -405,6 +409,70 @@ def create_app(data_dir=None, testing=False):
     @app.get('/api/projects/<ident>')
     def project_get(ident):
         return jsonify(public_project(project(ident)))
+
+    # --- Brand logos ------------------------------------------------------------
+    # Logos are only composited into the user's own videos; they are stored as a
+    # normalized PNG per brand slug and never fetched from the network.
+    logo_dir = data / 'logos'
+
+    def logo_slug(slug):
+        if slug not in palettes.BRANDS:
+            raise ValueError('Bilinmeyen marka.')
+        if logo_dir.is_symlink():
+            raise ValueError('Logo dizini güvenli değil.')
+        return slug
+
+    @app.get('/api/logos')
+    def list_logos():
+        return jsonify(brands=[{'slug': slug, 'name': name, 'has_logo': (logo_dir / f'{slug}.png').is_file()}
+                               for slug, (name, _pack, _stems) in palettes.BRANDS.items()],
+                       palettes=[{'id': key, 'label': value['label'], 'source': value['source']}
+                                 for key, value in palettes.PACKS.items()])
+
+    @app.get('/api/logos/<slug>/image')
+    def logo_image(slug):
+        slug = logo_slug(slug)
+        if not (logo_dir / f'{slug}.png').is_file():
+            from flask import abort
+            abort(404, description='Logo bulunamadı.')
+        return send_from_directory(logo_dir, f'{slug}.png', mimetype='image/png')
+
+    @app.post('/api/logos/<slug>')
+    def upload_logo(slug):
+        slug = logo_slug(slug)
+        uploaded = request.files.get('file')
+        if uploaded is None or not uploaded.filename:
+            raise ValueError('PNG, JPG, WEBP veya SVG logo dosyası seçin.')
+        extension = Path(secure_filename(uploaded.filename.replace('\\', '/').split('/')[-1])).suffix.lower()
+        if extension not in {'.png', '.jpg', '.jpeg', '.webp', '.svg'}:
+            raise ValueError('Yalnızca PNG, JPG, WEBP veya SVG logo yükleyin.')
+        logo_dir.mkdir(mode=0o700, exist_ok=True)
+        raw = logo_dir / f'.{slug}-{uuid.uuid4().hex}{extension}'
+        target = logo_dir / f'.{slug}-{uuid.uuid4().hex}.png'
+        try:
+            size = 0
+            with raw.open('xb') as output:
+                while chunk := uploaded.stream.read(64 * 1024):
+                    size += len(chunk)
+                    if size > MAX_LOGO_BYTES:
+                        from flask import abort
+                        abort(413, description='Logo en fazla 3 MB olabilir.')
+                    output.write(chunk)
+            if not size:
+                raise ValueError('Logo dosyası boş olamaz.')
+            media.normalize_logo(raw, target)
+            target.replace(logo_dir / f'{slug}.png')
+        finally:
+            raw.unlink(missing_ok=True)
+            target.unlink(missing_ok=True)
+        event(f'Logo yüklendi: {palettes.BRANDS[slug][0]}', 'success')
+        return jsonify(ok=True, slug=slug)
+
+    @app.delete('/api/logos/<slug>')
+    def delete_logo(slug):
+        slug = logo_slug(slug)
+        (logo_dir / f'{slug}.png').unlink(missing_ok=True)
+        return jsonify(ok=True)
 
     @app.get('/api/projects/<ident>/script')
     def download_script(ident):
@@ -621,7 +689,7 @@ def create_app(data_dir=None, testing=False):
                     result.update(progress=value, updated=now())
                     put('project', result)
                 target = data / 'renders' / ident / uuid.uuid4().hex[:12]
-                render_input = dict(result)
+                render_input = dict(result, logo_dir=str(logo_dir))
                 if opts.get('tts_provider') == 'uploaded':
                     render_input.update(audio_path=str(audio_file(result)),
                                         audio_captions=result['audio']['captions'],
@@ -663,10 +731,12 @@ def create_app(data_dir=None, testing=False):
             raise ValueError('Geçersiz anlatıcı karakteri.')
         if not isinstance(opts.get('host_name', ''), str) or len(opts.get('host_name', '')) > presenter.MAX_NAME:
             raise ValueError(f'Anlatıcı adı en fazla {presenter.MAX_NAME} karakter olabilir.')
+        if opts.get('palette', 'auto') != 'auto' and opts.get('palette') not in palettes.PACKS:
+            raise ValueError('Geçersiz renk paleti.')
         if not isinstance(opts.get('sfx', True), bool):
             raise ValueError('Ses efektleri seçeneği true veya false olmalı.')
         opts = {key: opts[key] for key in ('style', 'tts_provider', 'speech', 'speech_rate', 'video_design',
-                                           'host_look', 'host_name', 'sfx') if key in opts}
+                                           'host_look', 'host_name', 'sfx', 'palette') if key in opts}
         with jobs_lock:
             result = project(ident)
             if is_busy(ident):

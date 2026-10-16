@@ -1354,6 +1354,7 @@
     $("#video-design").value = project.render_options?.video_design || project.design || "host";
     $("#host-look").value = project.render_options?.host_look || "kuzgun";
     $("#render-sfx").checked = project.render_options?.sfx !== false;
+    $("#render-palette").value = project.render_options?.palette || "auto";
     const savedStyle = project.render_options?.style || "capsule";
     const styleInput = $(`input[name="render-style"][value="${savedStyle}"]`);
     if (styleInput) styleInput.checked = true;
@@ -1515,6 +1516,7 @@
           ...($("#video-design").value === "host"
             ? { host_look: $("#host-look").value, host_name: $("#host-name").value.trim(),
                 sfx: $("#render-sfx").checked } : {}),
+          palette: $("#render-palette").value,
           speech: provider !== "none",
           tts_provider: ["elevenlabs", "uploaded"].includes(provider) ? provider : "local",
         };
@@ -1824,8 +1826,50 @@
       }
     });
   }
+  async function loadLogos() {
+    const data = await api("/api/logos");
+    const palette = $("#render-palette");
+    const current = palette.value;
+    palette.replaceChildren(el("option", "", "Otomatik · habere göre"));
+    palette.firstChild.value = "auto";
+    data.palettes.forEach((item) => {
+      const option = el("option", "", item.label);
+      option.value = item.id;
+      palette.append(option);
+    });
+    palette.value = [...palette.options].some((option) => option.value === current) ? current : "auto";
+    const brands = $("#logo-brand");
+    const selected = brands.value;
+    brands.replaceChildren(...data.brands.map((brand) => {
+      const option = el("option", "", brand.name + (brand.has_logo ? " · logo yüklü" : ""));
+      option.value = brand.slug;
+      return option;
+    }));
+    if (selected) brands.value = selected;
+    const uploaded = data.brands.filter((brand) => brand.has_logo).map((brand) => brand.name);
+    $("#logo-status").textContent = uploaded.length ? "Yüklü logolar: " + uploaded.join(", ") : "Henüz logo yüklenmedi.";
+  }
+  async function uploadLogo() {
+    const file = $("#logo-file").files[0];
+    if (!file) return toast("Önce bir logo dosyası seç.", true);
+    if (file.size > 3 * 1024 * 1024) return toast("Logo en fazla 3 MB olabilir.", true);
+    await busy($("#upload-logo"), async () => {
+      try {
+        const form = new FormData();
+        form.append("file", file);
+        await api("/api/logos/" + encodeURIComponent($("#logo-brand").value), { method: "POST", headers: {}, body: form });
+        $("#logo-file").value = "";
+        await loadLogos();
+        toast("Logo yüklendi.");
+      } catch (error) {
+        toast(error.message, true);
+      }
+    });
+  }
   async function init() {
     hydrateIcons();
+    $("#upload-logo").addEventListener("click", uploadLogo);
+    loadLogos().catch(() => {});
     bindEvents();
     navigate(location.hash.slice(1) || "dashboard", false);
     const results = await Promise.allSettled([

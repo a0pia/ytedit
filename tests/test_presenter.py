@@ -119,7 +119,9 @@ class CapsuleThemeTests(unittest.TestCase):
         from app import capsule
         scenes = _host_plan(_kinetic_plan(36, LONG, 2.8))
         host = {"look": "kuzgun", "name": r"K{\b1}uzgun", "spans": LONG, "levels": None}
-        world, hud = capsule.events(r"Başlık {\fnX}", [(0, 36, "Metin bir iki")], scenes, 36, host)
+        world, hud, overlays = capsule.events(r"Başlık {\fnX}", [(0, 36, "Metin bir iki")], scenes, 36, host)
+        self.assertEqual(overlays, [])
+        self.assertIn("Aopia", "\n".join(hud))
         content = "\n".join(world + hud)
         self.assertIn(r"\clip(", "\n".join(world))
         self.assertIn("Anahtar kelime", content)
@@ -129,7 +131,7 @@ class CapsuleThemeTests(unittest.TestCase):
         self.assertEqual(len(captions), 3)
         self.assertTrue(all("METİN" in line and "İKİ" in line for line in captions))
         self.assertIn(r"{\alpha&HFF&}İKİ", captions[0])
-        self.assertIn(r"\1c&H3AF2D9&", captions[2])
+        self.assertIn(r"\1c&H3AF2D9&", captions[2])  # Kapsül pack highlight.
         self.assertIn("Teknoloji gündemi", content)
         self.assertIn(r"\1c&H3AF2D9&", content)  # Lime accent in ASS BGR order.
         self.assertNotIn(r"{\fnX}", content)
@@ -222,3 +224,36 @@ class PaletteTests(unittest.TestCase):
         self.assertEqual(" ".join(w for *_x, words, _t in bursts for w in words),
                          "Yeni nesil telefon çipleri yapay zekâyı cihazda çalıştırıyor.")
         self.assertEqual(bursts[-1][1], 4)
+
+
+class BrandTests(unittest.TestCase):
+    def test_story_brand_picks_its_pack_and_turkish_suffixes_match(self):
+        from app import palettes
+        self.assertEqual(palettes.primary_brand("Claude'un yeni sürümü", "Anthropic duyurdu."), "claude")
+        self.assertEqual(palettes.choose_pack("auto", "Claude'un yeni sürümü", ""), "anthropic")
+        self.assertEqual(palettes.choose_pack("ocean", "Claude", ""), "ocean")
+        self.assertIn(palettes.choose_pack("auto", "Yerel haber", "Belediye duyurdu."), palettes.GENERAL_PACKS)
+        self.assertIsNone(palettes.primary_brand("Metaverse değil", "metal fiyatları"))
+
+    def test_every_pack_keeps_text_readable(self):
+        from app import palettes
+        for name, pack in palettes.PACKS.items():
+            for scene in pack["scenes"]:
+                self.assertGreaterEqual(palettes.contrast(scene["card_ink"], scene["card"]), 4.5, (name, scene["name"]))
+                self.assertGreaterEqual(palettes.contrast(scene["ink"], scene["panel"]), 3.0, (name, scene["name"]))
+                self.assertGreaterEqual(palettes.contrast(scene["bird"], scene["panel"]), 2.0, (name, scene["name"]))
+
+    def test_brand_logo_or_wordmark_appears_where_the_brand_is_mentioned(self):
+        from app import capsule
+        spans = [(0, 4, "Claude yeni sürümünü duyurdu."), (4, 8, "Diğer haberler sürüyor."),
+                 (8, 12, "Claude kod yazıyor.")]
+        scenes = capsule.perches(_host_plan(_kinetic_plan(12, spans, 2.8)))
+        host = {"look": "kuzgun", "name": "Kuzgun", "spans": spans, "levels": None}
+        brand = {"slug": "claude", "name": "Claude", "stems": ("claude",), "logo": None}
+        world, _hud, overlays = capsule.events("Claude", [(0, 12, "Metin")], scenes, 12, host, "anthropic", brand)
+        self.assertEqual(overlays, [])
+        self.assertTrue(any(line.endswith("}Claude") for line in world))
+        brand["logo"] = "/tmp/claude.png"
+        _world, _hud, overlays = capsule.events("Claude", [(0, 12, "Metin")], scenes, 12, host, "anthropic", brand)
+        self.assertGreaterEqual(len(overlays), 1)
+        self.assertEqual(overlays[0]["size"], 150 - 2 * round(150 * .12))

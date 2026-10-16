@@ -21,7 +21,7 @@ import wave
 from typing import Callable
 
 from .audio import AudioError, inspect_audio, normalize_audio, plan_captions, validate_captions
-from . import capsule, presenter, sfx
+from . import capsule, palettes, presenter, sfx
 
 
 class MediaError(RuntimeError):
@@ -425,7 +425,7 @@ def _kinetic_events(title: str, segments: list[tuple[float, float, str]],
         for grid_y in (320, 520, 720, 920):
             shape(start, end, 1, "m 0 0 l 720 0 720 1 0 1", "FFFFFF", rf"\pos(0,{grid_y})", alpha="F0")
 
-        text(start, end, "HYPE / TEKNOLOJİ", 60, 104, 21, accent, extra=r"\fsp3\fad(80,100)")
+        text(start, end, f"{presenter.display_name(capsule.BRAND)} / TEKNOLOJİ", 60, 104, 21, accent, extra=r"\fsp3\fad(80,100)")
         text(start, end, f"{index+1:02d} / {len(scenes):02d}", 660, 104, 20, "FFFFFF", 9,
              extra=r"\1a&H55&\fad(80,100)")
         if host and scene.get("host") == "big":
@@ -501,7 +501,7 @@ def _kinetic_events(title: str, segments: list[tuple[float, float, str]],
             text(start + .10, end, "GÜNDEMDE", 98, 350, 19, base, extra=r"\fsp3\fad(80,140)")
             text(start + .14, end, fitted, 360, 540, size, base, 5,
                  extra=r"\fscx96\fscy96\t(0,300,\fscx100\fscy100)\fad(90,140)")
-            text(start + .20, end, "HYPE / GÜNDEM", 98, 702, 15, base, extra=r"\fsp1\1a&H55&\fad(90,140)")
+            text(start + .20, end, f"{presenter.display_name(capsule.BRAND)} / GÜNDEM", 98, 702, 15, base, extra=r"\fsp1\1a&H55&\fad(90,140)")
         else:
             text(start, end, "YAKINDAN BAKIŞ", 62, 225, 20, accent, extra=r"\fsp2\fad(100,140)")
             shape(start, end, 3, "m 0 0 l 505 0 505 6 0 6", accent, r"\pos(62,302)",
@@ -537,7 +537,7 @@ def _kinetic_events(title: str, segments: list[tuple[float, float, str]],
 
 def _write_subtitles(output_dir: Path, title: str, segments: list[tuple[float, float, str]], duration: float,
                      *, scenes: list[dict] | None = None, style: str = "aurora",
-                     host: dict | None = None) -> tuple[Path, Path]:
+                     host: dict | None = None, pack: str = "kapsul", brand: dict | None = None) -> tuple[Path, Path]:
     subtitle_path = output_dir / "captions.srt"
     subtitle_path.write_text("\n\n".join(
         f"{i}\n{_timestamp(start)} --> {_timestamp(end)}\n{text}"
@@ -561,7 +561,8 @@ Style: Motion,{font},44,&H00FFFFFF,&H000000FF,&H00120B07,&H00000000,-1,0,0,0,100
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
     if scenes and style == "capsule":
-        world, hud = capsule.events(title, segments, scenes, duration, host)
+        world, hud, overlays = capsule.events(title, segments, scenes, duration, host, pack, brand)
+        (output_dir / "overlays.json").write_text(json.dumps(overlays), encoding="utf-8")
         # Separate layers let FFmpeg move a camera over the world under a still HUD.
         (output_dir / "world.ass").write_text(header + "\n".join(world) + "\n", encoding="utf-8")
         (output_dir / "hud.ass").write_text(header + "\n".join(hud) + "\n", encoding="utf-8")
@@ -599,6 +600,21 @@ def _background(path: Path, style: str) -> None:
                 base = top[c] * (1 - mix) + bottom[c] * mix
                 pixels.append(max(0, min(255, round(base + glow[c] * (bloom + ring + grid)))))
     path.write_bytes(f"P6\n{width} {height}\n255\n".encode("ascii") + pixels)
+
+
+def normalize_logo(source: Path, target: Path) -> None:
+    """Decode an uploaded logo locally and store it as a PNG at most 512 px wide."""
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        raise MediaError("Logo işlemek için FFmpeg gerekli.")
+    try:
+        _run([ffmpeg, "-nostdin", "-hide_banner", "-loglevel", "error", "-y", "-i", str(source), "-frames:v", "1",
+              "-vf", "scale='min(512,iw)':-2:flags=lanczos,format=rgba", "-f", "image2", "-c:v", "png", str(target)],
+             timeout=30)
+    except MediaError as exc:
+        raise MediaError("Logo okunamadı. Geçerli bir PNG, JPG, WEBP veya SVG yükleyin.") from exc
+    if not target.is_file() or target.stat().st_size < 64:
+        raise MediaError("Logo okunamadı. Geçerli bir PNG, JPG, WEBP veya SVG yükleyin.")
 
 
 def _elevenlabs(sentence: str, target: Path) -> None:
@@ -729,6 +745,9 @@ def _render_work(project: dict, output_dir: Path, options: dict | None = None,
     if not isinstance(options.get("host_name", ""), str):
         raise MediaError("Anlatıcı adı metin olmalı.")
     host_name = presenter.clean_name(options.get("host_name"), look)
+    palette_choice = options.get("palette", "auto")
+    if palette_choice != "auto" and palette_choice not in palettes.PACKS:
+        raise MediaError("Desteklenmeyen renk paleti.")
     effects = options.get("sfx", True)
     if not isinstance(effects, bool):
         raise MediaError("Ses efektleri seçeneği true veya false olmalı.")
@@ -831,7 +850,19 @@ def _render_work(project: dict, output_dir: Path, options: dict | None = None,
             scenes = capsule.perches(scenes)
         host = {"look": look, "name": host_name, "spans": spans,
                 "levels": presenter.speech_levels(narration_path, cursor) if speech else None}
-    subtitle_path, _ = _write_subtitles(output_dir, title, segments, cursor, scenes=scenes, style=style, host=host)
+    brand = None
+    if style == "capsule":
+        pack = palettes.choose_pack(palette_choice, title, script)
+        slug = palettes.primary_brand(title, script)
+        if slug:
+            name, _pack, stems = palettes.BRANDS[slug]
+            logo = Path(str(project.get("logo_dir") or "")) / f"{slug}.png" if project.get("logo_dir") else None
+            brand = {"slug": slug, "name": name, "stems": tuple(stem.strip().lower() for stem in stems),
+                     "logo": str(logo) if logo and logo.is_file() else None}
+    else:
+        pack = "kapsul"
+    subtitle_path, _ = _write_subtitles(output_dir, title, segments, cursor, scenes=scenes, style=style, host=host,
+                                        pack=pack, brand=brand)
     if design == "classic":
         _background(output_dir / "background.ppm", style)
         inputs = ["-loop", "1", "-framerate", "24", "-i", "background.ppm", "-i", "narration.wav"]
@@ -845,8 +876,24 @@ def _render_work(project: dict, output_dir: Path, options: dict | None = None,
         width, height = round(720 * capsule.CANVAS_SCALE), round(1280 * capsule.CANVAS_SCALE)
         inputs = ["-f", "lavfi", "-i", f"color=c=0xE8E7E2:s={width}x{height}:r=24:d={cursor:.6f}", "-i", audio_track]
         zoom, x, y = capsule.camera(scenes, cursor)
-        filters = (f"ass=world.ass,zoompan=z='{zoom}':x='{x}':y='{y}':d=1:s=720x1280:fps=24,"
-                   "ass=hud.ass")
+        overlays = json.loads((output_dir / "overlays.json").read_text(encoding="utf-8"))
+        # Uploaded logos are composited into the world layer so they zoom with it.
+        graph, current = ["[0:v]ass=world.ass[w0]"], "w0"
+        logo_inputs: dict[str, int] = {}
+        for item in overlays:
+            if item["file"] not in logo_inputs:
+                logo_inputs[item["file"]] = 2 + len(logo_inputs)
+                inputs += ["-loop", "1", "-framerate", "24", "-i", item["file"]]
+        for number, item in enumerate(overlays):
+            box = round(item["size"] * capsule.CANVAS_SCALE)
+            graph.append(f"[{logo_inputs[item['file']]}:v]scale={box}:{box}:force_original_aspect_ratio=decrease,"
+                         f"format=rgba[l{number}]")
+            graph.append(f"[{current}][l{number}]overlay=x={item['x'] * capsule.CANVAS_SCALE:.0f}+({box}-overlay_w)/2:"
+                         f"y={item['y'] * capsule.CANVAS_SCALE:.0f}+({box}-overlay_h)/2:"
+                         f"enable='between(t,{item['start']:.3f},{item['end']:.3f})':shortest=0:eof_action=repeat[w{number + 1}]")
+            current = f"w{number + 1}"
+        graph.append(f"[{current}]zoompan=z='{zoom}':x='{x}':y='{y}':d=1:s=720x1280:fps=24,ass=hud.ass[video]")
+        filters = ";".join(graph)
     else:
         inputs = ["-f", "lavfi", "-i", f"color=c=0x111B22:s=720x1280:r=24:d={cursor:.6f}", "-i", "narration.wav"]
         filters = "ass=captions.ass"
@@ -854,7 +901,8 @@ def _render_work(project: dict, output_dir: Path, options: dict | None = None,
     video_path = output_dir / "reel.mp4"
     _encode([shutil.which("ffmpeg"), "-nostdin", "-hide_banner", "-loglevel", "error", "-y", "-nostats", "-stats_period", "0.1", "-progress", "pipe:1",
           *inputs,
-          "-vf", filters, "-t", f"{cursor:.6f}", "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
+          *(["-filter_complex", filters, "-map", "[video]", "-map", "1:a"] if ";" in filters or "[video]" in filters
+            else ["-vf", filters]), "-t", f"{cursor:.6f}", "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
           "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart",
           "-threads", "2", "-filter_threads", "2", "-shortest", "reel.mp4"], output_dir, cursor, report)
     probe = _run([shutil.which("ffprobe"), "-v", "error", "-show_entries", "format=duration:stream=codec_name,codec_type,width,height",
@@ -870,7 +918,7 @@ def _render_work(project: dict, output_dir: Path, options: dict | None = None,
         raise MediaError("Video çıktısı doğrulanamadı. Yeniden deneyin.")
     for path in audio_files:
         path.unlink(missing_ok=True)
-    for leftover in ("background.ppm", "mix.wav", "world.ass", "hud.ass"):
+    for leftover in ("background.ppm", "mix.wav", "world.ass", "hud.ass", "overlays.json"):
         (output_dir / leftover).unlink(missing_ok=True)
     report(98)
     return {"video_path": str(video_path), "subtitle_path": str(subtitle_path),
@@ -879,7 +927,8 @@ def _render_work(project: dict, output_dir: Path, options: dict | None = None,
             "voice": "Harici kayıt" if provider == "uploaded" else engine["voice"] if speech and provider == "local" else "",
             "subtitle_timing": uploaded_timing if provider == "uploaded" else "sentence_audio" if speech else "estimated",
             "design": design, "scene_count": len(scenes) if scenes else 1,
-            **({"host_name": host_name, "host_look": look} if design == "host" else {})}
+            **({"host_name": host_name, "host_look": look} if design == "host" else {}),
+            **({"palette": pack, "brand": brand["slug"] if brand else None} if style == "capsule" else {})}
 
 
 def render(project: dict, output_dir: Path, options: dict | None = None,

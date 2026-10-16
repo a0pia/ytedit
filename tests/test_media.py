@@ -122,7 +122,7 @@ class RenderTests(unittest.TestCase):
                         {"speech": False, "video_design": "classic"})
         self.assertEqual(result["design"], "classic")
         self.assertEqual(result["scene_count"], 1)
-        self.assertNotIn("HYPE / TEKNOLOJİ", (self.output / "captions.ass").read_text())
+        self.assertNotIn("/ TEKNOLOJİ", (self.output / "captions.ass").read_text())
         self.assertTrue(Path(result["video_path"]).is_file())
 
     def test_kinetic_export_changes_layouts_and_has_motion_between_cuts(self):

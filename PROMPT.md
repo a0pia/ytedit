@@ -69,3 +69,12 @@ birde alt yazı kısmını beğenmedim altyazıyı videoya gömerek yap daha bö
 - Altyazı kutusuz, konturlu, kelime kelime beliren kısa parçalar.
 - Sahne renkleri: Ana → iki renkli sahne → Ana.
 - Kamera her sahnede widget'a yakınlaşıp geri açılır.
+
+## Siluet kuzgun, Aopia markası, trend paletler ve logolar
+
+şu tarz bir tasarım olsun kuzgunun birde sol üste hype yazmasın Aopia yazsın ve tema hep mor pembe falan olmasın viral olan renk paletlerini bul internetten ve hikaye örgüsüne göre logo falanda koyabilirsin ... örnek claude ile ilgili haber yapıyoruz claude logo gelsin gibi birde internette etkileyici sunum skill falan varsa onlarıda kullanabilirsin
+
+- Kuzgun: tek renk gerçekçi siluet, uçuş/ötme/gagalama pozları.
+- Sol üst marka: Aopia.
+- Renk paketleri: Pinterest 2026, WGSN 2026, theme-factory temaları, marka paketleri; habere göre otomatik.
+- Marka logoları kullanıcı tarafından yüklenir; videoda giriş ve markanın geçtiği sahnelerde görünür.

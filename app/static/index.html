@@ -645,6 +645,19 @@
                     <label class="field-label" for="host-name">Anlatıcı adı</label>
                     <input class="text-input" id="host-name" maxlength="18" placeholder="Karakterin varsayılan adı" />
                     <label class="check-row"><input type="checkbox" id="render-sfx" checked /> Geçiş ses efektleri (Kapsül teması)</label>
+                    <label class="field-label" for="render-palette">Renk paleti (Kapsül)</label>
+                    <select class="text-input" id="render-palette">
+                      <option value="auto">Otomatik · habere göre</option>
+                    </select>
+                    <p class="field-help">Otomatik: haberde bir marka geçiyorsa (ör. Claude) marka renkleri, yoksa güncel trend paletlerinden biri seçilir.</p>
+                    <details class="logo-manager">
+                      <summary>Marka logoları</summary>
+                      <p class="field-help">Habere konu olan markanın resmi logosunu yükle; videoda girişte ve markanın geçtiği sahnelerde görünür. Logo yoksa marka adı renkli etiketle gösterilir.</p>
+                      <select class="text-input" id="logo-brand"></select>
+                      <input class="text-input" type="file" id="logo-file" accept=".png,.jpg,.jpeg,.webp,.svg" />
+                      <button class="button button-light full-width" type="button" id="upload-logo">Logoyu yükle</button>
+                      <p class="field-help" id="logo-status"></p>
+                    </details>
                   </div>
                   <label class="field-label" for="tts-provider"
                     >Seslendirme</label

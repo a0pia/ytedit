@@ -73,19 +73,32 @@ Karanlık sahne yoktur; kontrast koyu kartlar (`ink`) ile sağlanır.
 - **Gömülü altyazı:** Kutu yok; konturlu, kelime kelime beliren büyük harfler (bkz. 8).
 - **Alt zaman çubuğu:** Beyaz kapsül; solda koyu takvim dairesi, her sahne için bir nokta; geçerli sahne koyu kapsül bölüm ve limon nokta ile işaretlenir. İlerleme çubuğu görevini görür.
 
-## 6. Sahne renkleri
+## 6. Renk paketleri ve sahne renkleri
 
-Her kesmede panelin rengi değişir; iki renkli sahneden sonra ana renge dönülür: **Ana → Limon → Gece → Ana → Lila → Mercan → Ana …** Renk değişimi, gözün yeni sahneyi ilk bakışta fark etmesini sağlar; ana renge dönüş de videonun kimliğini korur.
+Her video bir **renk paketi** kullanır. Paket; çerçeve rengi, vurgu ("pop") rengi ve sahne paletlerinden oluşur. Her kesmede panelin rengi değişir; iki renkli sahneden sonra paketin ana rengine dönülür (Ana → A → B → Ana → C → D → Ana …).
 
-| Palet | Panel | Kart | Panel metni | Vurgu |
-| --- | --- | --- | --- | --- |
-| Ana | `#E8E7E2` | `#F6F5F1` | `#2B2C2E` | limon `#D9F23A` |
-| Limon | `#D9F23A` | `#F8FBE3` | `#1E220C` | kömür `#2B2C2E` |
-| Gece | `#34405A` | `#F4F3EF` | `#F4F3EF` | limon |
-| Lila | `#CFC6F5` | `#FBFAFF` | `#211D3A` | kömür |
-| Mercan | `#F4B49B` | `#FFF6F1` | `#3A1C12` | kömür |
+**Otomatik seçim:** Haberde bir marka geçiyorsa (başlık iki kat sayılır) markanın paketi seçilir; ör. Claude/Anthropic haberinde krem–kil–kömür tonları. Marka yoksa güncel trend paketlerinden biri haberin başlığına göre sabit olarak seçilir. Panelden elle de seçilebilir.
 
-Kart içindeki metin her zaman koyudur; panel üzerindeki metin, panelin rengine göre açık ya da koyu seçilir. Sekme de sahnenin rengini alır; böylece panelle bütünleşik kalır.
+| Paket | Renkler | Kaynak |
+| --- | --- | --- |
+| Pinterest 2026 | Cool Blue `#D7EFFF`, Wasabi `#E9F056`, Plum Noir `#351E28`, Persimmon `#FF5C34`, Jade `#AEB8A0` | Pinterest Palette 2026 |
+| Transformative Teal | Cloud Dancer (yaklaşık `#F0EEE9`), teal `#0F6B6E`, altın `#F2C14E` | WGSN × Coloro 2026, Pantone 2026 (hex değerleri yaklaşık) |
+| Ocean Depths | `#1A2332`, `#2D8B8B`, `#A8DADC`, `#F1FAEE` | Anthropic theme-factory (Apache 2.0) |
+| Sunset Boulevard | `#E76F51`, `#F4A261`, `#E9C46A`, `#264653` | theme-factory |
+| Tech Innovation | `#0066FF`, `#00FFFF`, `#1E1E1E`, `#FFFFFF` | theme-factory |
+| Golden Hour | `#F4A900`, `#C1666B`, `#D4B896`, `#4A403A` | theme-factory |
+| Forest Canopy | `#2D4A2B`, `#7D8471`, `#A4AC86`, `#FAF9F6` | theme-factory |
+| Kapsül | `#E8E7E2`, limon `#D9F23A`, gece `#34405A`, lila, mercan | Bu proje |
+| Marka paketleri | Claude/Anthropic, OpenAI, Google/Gemini, Apple, NVIDIA, Meta, Microsoft, Samsung, Tesla/X | Marka renklerine yakın tonlar |
+
+Her sahne paletinde metin rengi otomatik kontrol edilir: kart metni ile kart arasında en az 4,5:1 kontrast aranır. Kuzgun silueti açık panelde koyu, koyu panelde açık renktir.
+
+### Marka ve logo
+
+- Sol üstteki marka adı **Aopia**'dır (`VIDEO_BRAND` ortam değişkeniyle değiştirilebilir); daire içinde baş harfi.
+- Haberin markası için panelden **resmi logo** yüklenebilir (PNG, JPG, WEBP, SVG; en fazla 3 MB). Uygulama logoyu yerelde PNG'ye çevirir; internetten logo indirmez, depoda logo bulunmaz.
+- Logo girişte sahnenin sol üstünde beyaz bir karonun içinde, markanın geçtiği diğer sahnelerde "+" düğmesinin yerinde görünür ve kamerayla birlikte yakınlaşır.
+- Logo yüklenmemişse markanın adı, paketin vurgu renginde bir etiketle gösterilir.
 
 ## 7. Kamera ve hareket
 
@@ -121,14 +134,13 @@ Altyazı ayrı bir kutuda durmaz; videonun üzerine **gömülüdür**:
 6. **Ses ipuçları:** her kesmede whoosh, anahtar kelime ve ikinci kart gelişinde kısa "pop". Uygulama içinde sentezlenir, kapatılabilir.
 7. **Her hareket bir işe yarar:** hareket ya yeni bilgiyi ya da sahne değişimini işaret eder.
 
-## 10. Anlatıcı: Kuzgun (gerçekçi yan profil)
+## 10. Anlatıcı: Kuzgun (gerçekçi siluet)
 
-Kuzgun gerçek bir kuzgun gibi **yandan** görünür ve baktığı yöne göre sağa ya da sola döner.
+Kuzgun, klasik kuş siluet setlerindeki gibi **tek renk, detaysız, gerçekçi bir silüettir** ve yandan görünür; baktığı yöne göre sağa ya da sola döner.
 
-- **Anatomi:** Kalın, hafif kıvrık ve uç kısmı aşağı kıvrılan gaga; gaga kökünü örten burun tüyleri; boğazda kabarık, sivri "hackle" tüyleri; uzun, katmanlı kanat tüyleri; kama biçimli kuyruk; pullu bacaklar ve tünek tutan parmaklar.
-- **Renk:** Siyahın tonları (`#121419`, `#1A1D25`, `#262A35`) ve tüylerde mavi-mor parlama (`#3C4766`). Göz koyu kahverengi, küçük bir ışık yansımasıyla. Marka rengi karaktere eklenmez; gerçekçilik korunur.
-- **Gaga = ağız:** Alt gaga seslendirmenin şiddetine göre açılır, içi koyu kırmızı görünür.
-- **Göz:** Kırpınca gri göz kapağı kapanır.
+- **Anatomi:** Kalın, ucu kıvrık gaga; gaga kökünde burun tüyleri; boğazda sivri tüyler; uzun katlanmış kanat; kama biçimli kuyruk; tüneği kavrayan parmaklar.
+- **Pozlar:** dik duruş (tünekte), selamlarken kanatları açık duruş, uçuşta beş ayrık "parmak" tüylü açık kanatlar (kanat çırpar, arkadaki kanat da görünür), ötme (konuşurken baş yukarı kalkar, gaga açılır), gagalama (baş öne iner).
+- **Renk:** Açık panelde neredeyse siyah (`#17181C`), koyu panelde açık (`#EEECE6`). Tünekteyken altında yumuşak gölge.
 
 ### Gerçek kuş gibi davranış
 

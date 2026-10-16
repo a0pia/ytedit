@@ -3756,3 +3756,13 @@ dialog .inline-warning {
   margin-top: 10px;
   font-size: 12px;
 }
+.logo-manager {
+  margin-top: 12px;
+  display: grid;
+  gap: 8px;
+}
+.logo-manager summary {
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+}

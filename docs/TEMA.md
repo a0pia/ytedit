@@ -141,7 +141,7 @@ Altyazı ayrı bir kutuda durmaz; videonun üzerine **gömülüdür**:
 Teknoloji kanalının yetişkin izleyicisine hitap eden varsayılan anlatıcı **Vega**'dır: bilim kurgu filmlerindeki gibi şık, insansı bir android haber spikeri.
 
 - **Yüz:** Mat metal (`#D3DAE3`) kafa, sağ yanda gölge, alında parlama, ince panel dikişleri.
-- **Vizör:** Gözleri kesen koyu cam bant; gözler sahnenin vurgu renginde parlayan badem ışıklardır. Kırpınca ışık ince bir çizgiye iner, bakış ışıkların kaymasıdır.
+- **Kayak gözlüğü:** Başın etrafından dolanan kayış, burun oyuklu geniş çerçeve ve sahnenin vurgu renginde yansıyan aynalı cam (üzerinde çapraz parlama). Gözler camın arkasından parlayan badem ışıklardır; kırpınca ışık ince bir çizgiye iner, bakış ışıkların kaymasıdır.
 - **Ağız = ses ekolayzırı:** Susarken sönük ince bir ışık çubuğu; konuşurken sesin şiddetine göre inip çıkan 7 ışık çubuğu.
 - **Işıklar:** Kulak modülleri, şakaklar, boyun altındaki devre çizgileri ve göğüs çekirdeği vurgu renginde parlar; şakak ve devre ışıkları sesle yoğunlaşır. Neon parçalar hafif ışık saçar (blur).
 - **Kaşlar:** Vizörün üstünde iki ince çubuk; sahne geçişlerinde ve sorularda kalkar.

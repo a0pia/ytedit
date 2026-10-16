@@ -195,16 +195,27 @@ def android_head_parts(look: dict, accent: str, pose: dict) -> list[tuple[str, s
             _stroke([(200, 112), (200, 168)], 3)])),
         ("temple", accent + ("&\\1a&H" + f"{round(150 - 120 * min(1.0, level)):02X}"),
          _stroke([(104, 214), (100, 248)], 5) + " " + _stroke([(296, 214), (300, 248)], 5)),
-        ("visor", "0B1220", _rrect(108, 226, 184, 60, 30)),
-        ("visor-glare", "FFFFFF&\\1a&HD0", "m 130 232 l 200 232 l 186 244 l 124 244"),
+        # Ski goggles: a strap around the head, a wide frame with a nose cut-out
+        # and a mirrored lens; the eye lights still glow through the glass.
+        ("goggle-strap", "151A24", "m 80 236 b 120 230 280 230 320 236 l 320 272 b 280 266 120 266 80 272 l 80 236"),
+        ("strap-stripe", accent + "&\\1a&H50", _rrect(80, 250, 22, 8, 4) + " " + _rrect(298, 250, 22, 8, 4)),
+        ("goggle-frame", "1C2230", "m 120 208 l 280 208 b 304 208 314 222 314 244 l 314 276 b 314 298 300 308 278 308 "
+                                   "l 238 308 b 224 308 214 290 200 290 b 186 290 176 308 162 308 l 122 308 "
+                                   "b 100 308 86 298 86 276 l 86 244 b 86 222 96 208 120 208"),
+        ("goggle-lens", "0D1424", "m 124 218 l 276 218 b 294 218 302 228 302 246 l 302 274 b 302 290 292 298 276 298 "
+                                  "l 240 298 b 228 298 218 280 200 280 b 182 280 172 298 160 298 l 124 298 "
+                                  "b 108 298 98 290 98 274 l 98 246 b 98 228 106 218 124 218"),
+        ("lens-mirror", accent + "&\\1a&H90", "m 124 218 l 276 218 b 294 218 302 228 302 246 l 302 256 "
+                                               "b 240 246 160 246 98 256 l 98 246 b 98 228 106 218 124 218"),
+        ("lens-glare", "FFFFFF&\\1a&HB8", "m 128 224 l 176 224 l 142 290 l 112 290 m 186 224 l 204 224 l 170 290 l 156 290"),
     ]
     openness = pose["open"]
     height = max(1.6, 9 * openness)
-    parts.append(("eyes", accent, _ellipse(160 + gx, 256 + gy * .6, 24, height) + " " +
-                  _ellipse(240 + gx, 256 + gy * .6, 24, height)))
+    parts.append(("eyes", accent + "&\\1a&H30", _ellipse(160 + gx, 258 + gy * .6, 24, height) + " " +
+                  _ellipse(240 + gx, 258 + gy * .6, 24, height)))
     raise_, tilt = pose["brow"]
     parts.append(("brows", brow, " ".join(_stroke(_rotated([(-24, 0), (24, 0)], (-tilt if right else tilt), x,
-                                                            212 - raise_ * 9), 6)
+                                                            194 - raise_ * 9), 6)
                                          for x, right in ((160, False), (240, True)))))
     parts.append(("mouth-slot", "1A2130", _rrect(156, 334, 88, 16, 8)))
     kind, _w, h = pose["mouth"]

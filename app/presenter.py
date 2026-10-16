@@ -33,7 +33,7 @@ LOOKS = {
     # hops, pecks and snaps its head in small jerky steps.
     "kuzgun": {"label": "Kuzgun", "kind": "raven", "skin": "1B1E29", "shade": "2E3446", "hair": "4C5675",
                "hairstyle": "none", "glasses": False, "beard": False, "hoodie": "1B1E29", "roam": True,
-               "pivot": (200.0, 400.0), "feet": (200.0, 640.0)},
+               "pivot": (282.0, 330.0), "feet": (200.0, 640.0)},
     # Volt is the Capsule theme's mascot: capsule head, antenna and headphones
     # form a silhouette that stays recognizable even as a flat shadow.
     "volt": {"label": "Volt", "kind": "mascot", "skin": "F2F1EC", "shade": "C9C7C0", "hair": "2B2C2E",
@@ -203,99 +203,136 @@ def mascot_head_parts(look: dict, accent: str, pose: dict) -> list[tuple[str, st
     return parts
 
 
+# --- Kuzgun: a realistic side-profile raven ---------------------------------------
+# Drawn facing right in a 400x640 frame with the feet at (200, 640); mirrored when
+# facing left. Proportions follow a common raven: heavy arched bill with nasal
+# bristles, shaggy throat hackles, long folded primaries and a wedge-shaped tail.
+
+RAVEN = {"black": "121419", "body": "1A1D25", "mid": "262A35", "sheen": "3C4766", "bill": "202329",
+         "leg": "25272D", "eye": "2B1A12"}
+
+
+def _raven_path(commands, mirror: bool) -> str:
+    """Build a drawing from (command, points) pairs, mirroring around x=200."""
+    out = []
+    for command, points in commands:
+        coordinates = " ".join(f"{_n(400 - x if mirror else x)} {_n(y)}" for x, y in points)
+        out.append(f"{command} {coordinates}")
+    return " ".join(out)
+
+
+def _poly(points, mirror):
+    first, *rest = points
+    return _raven_path([("m", [first]), ("l", rest)], mirror)
+
+
+def _turn(points, angle, pivot):
+    return _rotated([(x - pivot[0], y - pivot[1]) for x, y in points], angle, *pivot)
+
+
+_WING = [(186, 352), (232, 346), (276, 372), (292, 418), (282, 466), (246, 512), (196, 552), (150, 590),
+         (104, 628), (118, 600), (88, 622), (112, 590), (82, 606), (122, 560), (140, 520), (150, 460),
+         (160, 400)]
+_SHOULDER = (196, 366)
+
+
 def raven_body_parts(look: dict, accent: str, pose: dict) -> list[tuple[str, str, str]]:
-    """Full-body bird: tail, round body, folding wings, legs and toes."""
-    ink, gloss = look["skin"], look["shade"]
+    mirror = pose.get("face", 1) < 0
     left, right = pose.get("wings", (0.0, 0.0))
     if pose.get("wave") is not None:
-        right = 70 + pose["wave"] * 2.2
-
-    def wing(angle, mirror):
-        shape = [(112, 430), (84, 470), (74, 530), (82, 590), (96, 576), (98, 606), (114, 588), (120, 612),
-                 (134, 580), (138, 500)]
-        shoulder = (118, 440)
-        if mirror:
-            shape = [(400 - x, y) for x, y in shape]
-            shoulder = (282, 440)
-            angle = -angle
-        return _polygon(_rotated([(x - shoulder[0], y - shoulder[1]) for x, y in shape], angle, *shoulder))
-
-    def edge(angle, mirror):
-        shape = [(84, 470), (74, 530), (82, 590), (92, 560), (96, 500)]
-        shoulder = (118, 440)
-        if mirror:
-            shape = [(400 - x, y) for x, y in shape]
-            shoulder = (282, 440)
-            angle = -angle
-        return _polygon(_rotated([(x - shoulder[0], y - shoulder[1]) for x, y in shape], angle, *shoulder))
-
-    toes = []
-    for x in (178, 222):
-        toes.append(_rrect(x - 3, 596, 6, 38, 3))
-        toes.append(_polygon([(x - 2, 630), (x - 22, 642), (x - 18, 646), (x, 636), (x + 18, 646), (x + 22, 642),
-                              (x + 2, 630)]))
-    return [
-        ("tail", ink, _polygon([(168, 560), (138, 650), (170, 638), (184, 660), (200, 640), (216, 660), (230, 638),
-                                (262, 650), (232, 560)])),
-        ("legs", "3A4052", " ".join(toes)),
-        ("body", ink, _ellipse(200, 505, 118, 120)),
-        ("chest", gloss, " ".join(
-            f"m {x - 24} {y} b {x - 24} {y + 20} {x + 24} {y + 20} {x + 24} {y} b {x + 11} {y + 7} {x - 11} {y + 7} {x - 24} {y}"
-            for x, y in ((176, 470), (224, 470), (152, 502), (200, 502), (248, 502), (176, 534), (224, 534),
-                         (200, 566)))),
-        ("wings", ink, wing(left, False) + " " + wing(right, True)),
-        ("wing-gloss", gloss, edge(left, False) + " " + edge(right, True)),
-        ("scarf", accent, "m 128 404 b 160 432 240 432 272 404 b 282 416 284 432 278 444 "
-                          "b 240 468 160 468 122 444 b 116 432 118 416 128 404"),
-        ("scarf-tail", _darker(accent, .82), "m 236 442 l 276 438 l 268 498 l 248 486 l 232 506 l 228 456"),
+        left = right = 30 + pose["wave"] * 3
+    lift = max(left, right)
+    parts = []
+    if pose.get("perched", True):
+        parts.append(("shadow", "000000&\\1a&HC8", _raven_path([("m", [(80, 640)]), ("b", [(80, 628), (320, 628), (320, 640)]),
+                                                                ("b", [(320, 652), (80, 652), (80, 640)])], False)))
+    # The far wing shows behind the body only while the bird flaps.
+    if lift > 8:
+        far = _turn([(x + 18, y - 6) for x, y in _WING], lift * 1.1, (_SHOULDER[0] + 18, _SHOULDER[1] - 6))
+        parts.append(("far-wing", RAVEN["black"], _poly(far, mirror)))
+    parts += [
+        ("tail", RAVEN["black"], _poly([(156, 520), (112, 590), (66, 650), (52, 672), (80, 664), (98, 670),
+                                         (120, 660), (186, 566)], mirror)),
+        ("tail-sheen", RAVEN["mid"], _poly([(150, 548), (96, 628), (80, 652), (104, 640), (170, 566)], mirror)),
+        ("legs", RAVEN["leg"], " ".join([
+            _poly([(214, 560), (226, 560), (222, 632), (212, 632)], mirror),
+            _poly([(240, 556), (252, 556), (250, 630), (240, 630)], mirror),
+            # Three toes forward, one back, gripping the perch.
+            _poly([(208, 630), (248, 628), (266, 636), (262, 642), (244, 638), (226, 642), (186, 642), (176, 638)], mirror),
+            _poly([(236, 628), (276, 630), (292, 638), (286, 643), (252, 640), (232, 638)], mirror),
+        ])),
+        ("leg-scales", "3A3D45", " ".join(_poly([(213, y), (223, y - 2), (223, y), (213, y + 2)], mirror)
+                                           for y in range(574, 628, 9))),
+        ("body", RAVEN["body"], _raven_path([("m", [(150, 330)]), ("b", [(206, 296), (300, 314), (332, 386)]),
+                                             ("b", [(352, 450), (322, 540), (262, 574)]),
+                                             ("b", [(222, 596), (172, 590), (144, 562)]),
+                                             ("b", [(104, 524), (100, 400), (150, 330)])], mirror)),
+        ("belly", RAVEN["black"], _raven_path([("m", [(262, 574)]), ("b", [(300, 548), (330, 500), (334, 450)]),
+                                               ("b", [(318, 510), (280, 556), (226, 580)])], mirror)),
+        ("neck", RAVEN["body"], _poly([(244, 250), (330, 262), (344, 330), (318, 396), (196, 360)], mirror)),
+        ("hackles", RAVEN["black"], _poly([(318, 272), (348, 286), (338, 296), (352, 314), (336, 316), (348, 338),
+                                           (330, 338), (340, 362), (322, 358), (326, 384), (300, 372), (296, 300)],
+                                          mirror)),
     ]
+    wing = _turn(_WING, lift, _SHOULDER)
+    parts.append(("wing", RAVEN["black"], _poly(wing, mirror)))
+    coverts = []
+    for row, (y0, x0, count) in enumerate(((388, 214, 4), (430, 196, 4), (472, 176, 3))):
+        for i in range(count):
+            cx, cy = x0 + i * 24 - row * 6, y0 + i * 10
+            scallop = [(cx - 16, cy), (cx, cy + 14), (cx + 16, cy + 2), (cx + 4, cy + 6)]
+            coverts.append(_poly(_turn(scallop, lift, _SHOULDER), mirror))
+    parts.append(("coverts", RAVEN["mid"], " ".join(coverts)))
+    primaries = []
+    for offset in range(4):
+        strip = [(250 - offset * 14, 470 + offset * 8), (256 - offset * 14, 476 + offset * 8),
+                 (120 - offset * 10, 604 + offset * 4), (114 - offset * 10, 600 + offset * 4)]
+        primaries.append(_poly(_turn(strip, lift, _SHOULDER), mirror))
+    parts.append(("primaries", RAVEN["sheen"] + "&\\1a&H70", " ".join(primaries)))
+    parts.append(("wing-sheen", RAVEN["sheen"] + "&\\1a&H90",
+                  _poly(_turn([(200, 360), (256, 366), (284, 410), (250, 400), (206, 384)], lift, _SHOULDER), mirror)))
+    return parts
 
 
 def raven_head_parts(look: dict, accent: str, pose: dict) -> list[tuple[str, str, str]]:
-    ink, gloss, brow = look["skin"], look["shade"], look["hair"]
-    gx, gy = pose["gaze"]
+    mirror = pose.get("face", 1) < 0
+    kind, _w, h = pose["mouth"]
+    gap = 0.0 if kind == "X" else min(26.0, 6 + h * 1.2)
+    gape = (354, 252)
+    lower = _turn([(356, 250), (392, 252), (424, 256), (440, 260), (426, 270), (388, 272), (352, 262)], gap, gape)
     parts = [
-        ("crown", ink, _polygon([(150, 150), (148, 74), (178, 128), (194, 52), (212, 124), (246, 66), (244, 134),
-                                 (262, 150)])),
-        ("cheeks", ink, _polygon([(94, 300), (70, 272), (96, 268), (78, 236), (104, 240)]) + " " +
-         _polygon([(306, 300), (330, 272), (304, 268), (322, 236), (296, 240)])),
-        ("head", ink, "m 200 112 b 276 112 314 170 314 250 b 314 338 268 404 200 404 "
-                      "b 132 404 86 338 86 250 b 86 170 124 112 200 112"),
-        ("gloss", gloss, "m 130 170 b 156 132 230 124 270 160 b 236 146 170 148 130 170"),
+        ("head", RAVEN["body"], _raven_path([("m", [(250, 282)]), ("b", [(232, 220), (262, 170), (312, 166)]),
+                                             ("b", [(350, 164), (374, 192), (376, 226)]),
+                                             ("b", [(378, 258), (360, 288), (330, 302)]), ("l", [(258, 312)])], mirror)),
+        ("crown-sheen", RAVEN["sheen"] + "&\\1a&H80", _raven_path(
+            [("m", [(262, 210)]), ("b", [(276, 180), (318, 168), (350, 180)]), ("b", [(320, 178), (286, 190), (262, 210)])],
+            mirror)),
+    ]
+    if gap:
+        parts.append(("gape", "4A1820", _poly([gape, (440, 252), lower[3], lower[4], lower[6]], mirror)))
+    parts += [
+        ("lower-bill", RAVEN["bill"], _poly(lower, mirror)),
+        ("bill", RAVEN["bill"], _raven_path([("m", [(348, 206)]), ("b", [(392, 196), (436, 212), (456, 242)]),
+                                             ("b", [(462, 252), (456, 262), (446, 258)]),
+                                             ("b", [(420, 248), (386, 246), (354, 252)]), ("l", [(346, 236)])], mirror)),
+        ("bill-ridge", "3A3E48", _raven_path([("m", [(360, 206)]), ("b", [(396, 200), (430, 214), (448, 236)]),
+                                              ("b", [(426, 218), (394, 208), (360, 212)])], mirror)),
+        ("bristles", RAVEN["mid"], _poly([(334, 198), (362, 194), (390, 204), (404, 216), (384, 212), (392, 222),
+                                          (368, 216), (372, 228), (348, 222)], mirror)),
     ]
     openness = pose["open"]
+    gx = pose["gaze"][0] * .3 * (-1 if mirror else 1)
     if openness < .15:
-        def lid(x):
-            return f"m {x-30} 252 b {x-14} 266 {x+14} 266 {x+30} 252 b {x+14} 274 {x-14} 274 {x-30} 252"
-        parts.append(("lids", accent, lid(152) + " " + lid(248)))
+        parts.append(("eyelid", "3B3F4A", _raven_path([("m", [(322, 222)]), ("b", [(330, 214), (342, 214), (348, 222)]),
+                                                       ("b", [(342, 230), (330, 230), (322, 222)])], mirror)))
     else:
-        ry = 32 * openness
-        parts.append(("iris", accent, _ellipse(152, 252, 34, ry + 2) + " " + _ellipse(248, 252, 34, ry + 2)))
-        parts.append(("eyes", "FFFFFF", _ellipse(152, 252, 28, ry - 4) + " " + _ellipse(248, 252, 28, ry - 4)))
-        pupil = min(16, max(4, ry - 8))
-        parts.append(("pupils", "101218", _ellipse(152 + gx * 1.3, 254 + gy, 15, pupil) + " " +
-                      _ellipse(248 + gx * 1.3, 254 + gy, 15, pupil)))
+        r = 10 * openness
+        cx = 334 if not mirror else 66
+        parts.append(("eye-ring", "08090B", _ellipse(cx, 222, 12, r + 2)))
+        parts.append(("eye", RAVEN["eye"], _ellipse(cx + gx, 222, 9, r)))
+        parts.append(("pupil", "050506", _ellipse(cx + gx, 222, 5, max(2.0, r - 4))))
         if openness > .5:
-            parts.append(("shine", "FFFFFF", _ellipse(158 + gx * 1.3, 246 + gy, 5, 5) + " " +
-                          _ellipse(254 + gx * 1.3, 246 + gy, 5, 5)))
-    raise_, tilt = pose["brow"]
-    parts.append(("brows", brow, _brow(150, 208, raise_, tilt + 8, False) + " " + _brow(250, 208, raise_, tilt + 8, True)))
-    kind, w, h = pose["mouth"]
-    gap = 0 if kind == "X" else min(30, h * 1.5)
-    narrow = .8 if kind in ("O", "U") else 1.0
-    if gap:
-        parts.append(("throat", "7A1F2E", _ellipse(200, 312 + gap * .45, 22 * narrow, gap * .55 + 4)))
-        parts.append(("tongue", "E2697C", _ellipse(200, 318 + gap * .6, 11 * narrow, gap * .22 + 2)))
-    lower = 300 + gap
-    parts.append(("beak-low", "3A4052", f"m {_n(200 - 26 * narrow)} {_n(lower)} b {_n(200 - 18 * narrow)} {_n(lower + 22)} "
-                                         f"{_n(200 + 18 * narrow)} {_n(lower + 22)} {_n(200 + 26 * narrow)} {_n(lower)} "
-                                         f"b {_n(200 + 12)} {_n(lower + 34)} {_n(200 - 12)} {_n(lower + 34)} "
-                                         f"{_n(200 - 26 * narrow)} {_n(lower)}"))
-    parts.append(("beak", "4A5163", "m 160 292 b 172 274 228 274 240 292 b 236 322 216 346 200 364 "
-                                    "b 184 346 164 322 160 292"))
-    parts.append(("beak-shine", "6E7790", "m 182 288 b 194 282 206 282 214 288 b 210 300 204 312 200 318 "
-                                          "b 194 306 186 298 182 288"))
-    parts.append(("nostrils", "1B1E29", _ellipse(188, 296, 3, 2) + " " + _ellipse(212, 296, 3, 2)))
+            parts.append(("eye-shine", "FFFFFF&\\1a&H30", _ellipse(cx + gx + (3 if not mirror else -3), 218, 2.6, 2.6)))
     return parts
 
 
@@ -547,10 +584,15 @@ class Rig:
                 pose["angle"] = previous + (snap - previous) * min(1.0, (t - snap_at) / .07) + 3 * energy * math.sin(t * 9)
                 pose["bob"] = -4 * energy
                 pose["gaze"] = (-6 if fx > 380 else 6 if fx < 340 else 0, gaze[1])
+                # A side-profile bird faces the content: right-hand perches look left.
+                face = -1 if fx > 420 else 1
+                pose["perched"] = progress is None
                 if progress is not None:
-                    flap = 62 * (.5 + .5 * math.sin(progress * 2 * math.pi * 3.5))
+                    face = -1 if dx < 0 else 1
+                    flap = 95 * (.5 + .5 * math.sin(progress * 2 * math.pi * 3.5))
                     pose["wings"] = (flap, flap)
-                    pose["tilt"] = max(-18.0, min(18.0, dx / 12)) * math.sin(math.pi * progress)
+                    # Pitch forward into the flight direction.
+                    pose["tilt"] = -face * 14 * math.sin(math.pi * progress)
                     pose["wave"] = None
                 else:
                     landed = min(t - perch_at for perch_at, *_ in self.perches if perch_at <= t) - FLIGHT
@@ -558,7 +600,11 @@ class Rig:
                         # Settle the wings, then peck at whatever it landed on.
                         pose["wings"] = (40 * math.exp(-landed * 8), 40 * math.exp(-landed * 8))
                         if .25 <= landed < .55:
-                            pose["head_dy"] = 34 * math.sin(math.pi * (landed - .25) / .3)
+                            # Peck: the head dips forward and down.
+                            peck = math.sin(math.pi * (landed - .25) / .3)
+                            pose["head_dy"] = 18 * peck
+                            pose["angle"] -= face * 30 * peck
+                pose["face"] = face
         return pose
 
 

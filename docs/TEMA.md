@@ -70,69 +70,76 @@ Karanlık sahne yoktur; kontrast koyu kartlar (`ink`) ile sağlanır.
 - **Kart:** `card` dolgu, 36 px köşe, sağ üstte beyaz daire içinde simge, altta limon/gri dekoratif dalga (sürekli kayar).
 - **Koyu hap etiket:** `ink` dolgu, solda beyaz daire simge, beyaz metin (referanstaki "Aspirin ×2").
 - **Vurgu çizgisi:** Yakın plan sahnesinde ilk satırın altında limon fosforlu kalem şeridi.
-- **Altyazı kapsülü:** `ink` dolgu, 36 px köşe, beyaz kalın metin.
+- **Gömülü altyazı:** Kutu yok; konturlu, kelime kelime beliren büyük harfler (bkz. 8).
 - **Alt zaman çubuğu:** Beyaz kapsül; solda koyu takvim dairesi, her sahne için bir nokta; geçerli sahne koyu kapsül bölüm ve limon nokta ile işaretlenir. İlerleme çubuğu görevini görür.
 
-## 6. Hareket ve kamera
+## 6. Sahne renkleri
 
-Video iki katmandan oluşur: **dünya** (panel içeriği, kartlar, anlatıcı) ve **arayüz** (çerçeve, sekme, çipler, altyazı kapsülü, alt zaman çubuğu). Dünya 1,2 kat büyük bir tuvale çizilir ve sanal bir kamera üzerinde hareket eder; arayüz sabit kalır. Böylece görüntü sürekli canlıdır ama göz her zaman tutunacak sabit bir çerçeve bulur.
+Her kesmede panelin rengi değişir; iki renkli sahneden sonra ana renge dönülür: **Ana → Limon → Gece → Ana → Lila → Mercan → Ana …** Renk değişimi, gözün yeni sahneyi ilk bakışta fark etmesini sağlar; ana renge dönüş de videonun kimliğini korur.
 
-| Sahne | Kamera |
-| --- | --- |
-| Giriş / Ara sahne | Yüze "punch-in": kesmede %12 yakın, 0,3 sn'de yerine oturur, sonra yavaş itme |
-| Anahtar kelime | Sert punch-in (%18) |
-| Odak, Yakın plan | Yavaş itme (push-in) |
-| Gündemde | Yavaş geri çekilme (pull-out) |
-| Senaryodan | Yatay kayma (drift) |
-| Adım adım | İkinci karta doğru aşağı kayma (tilt) |
+| Palet | Panel | Kart | Panel metni | Vurgu |
+| --- | --- | --- | --- | --- |
+| Ana | `#E8E7E2` | `#F6F5F1` | `#2B2C2E` | limon `#D9F23A` |
+| Limon | `#D9F23A` | `#F8FBE3` | `#1E220C` | kömür `#2B2C2E` |
+| Gece | `#34405A` | `#F4F3EF` | `#F4F3EF` | limon |
+| Lila | `#CFC6F5` | `#FBFAFF` | `#211D3A` | kömür |
+| Mercan | `#F4B49B` | `#FFF6F1` | `#3A1C12` | kömür |
+
+Kart içindeki metin her zaman koyudur; panel üzerindeki metin, panelin rengine göre açık ya da koyu seçilir. Sekme de sahnenin rengini alır; böylece panelle bütünleşik kalır.
+
+## 7. Kamera ve hareket
+
+Video iki katmandan oluşur: **dünya** (panel içeriği, kartlar, kuzgun) ve **arayüz** (çerçeve, sekme, çipler, altyazı, alt zaman çubuğu). Dünya 1,2 kat büyük bir tuvale çizilir ve sanal bir kamera üzerinde hareket eder; arayüz sabit kalır.
+
+**Widget zoom'u:** Her sahnede kamera önce geniş açıdadır. Sahnenin ana widget'ına (kart, anahtar kelime kapsülü, alıntı, büyük plandaki kuzgun) yumuşakça yaklaşır (%14–24), bir süre orada kalır, sahne bitmeden geri açılır. Adım adım sahnesinde kamera birinci karttan ikinci karta iner.
 
 | Öğe | Hareket | Süre |
 | --- | --- | --- |
+| Widget zoom'u | Yaklaş → bekle → geri açıl (smoothstep) | sahne boyunca |
 | Düğüm | Ölçek 0 → 112 → 100 | 380 ms |
-| Zaman çizgisi | Soldan sağa çizim | 520 ms |
 | Kart | 40 px aşağıdan kayarak + solma | 320 ms |
-| Anahtar kelime | %150'den %100'e düşüş + limon kapsül açılması | 200 ms |
-| Sahne geçişi | Panel renginde perde + limon tarama çizgisi + whoosh sesi | 420 ms |
+| Anahtar kelime | %150'den %100'e düşüş + vurgu kapsülü açılması | 200 ms |
+| Sahne geçişi | Yeni sahne renginde perde + vurgu renginde tarama çizgisi + whoosh | 420 ms |
 
-## 7. Dikkat ritmi (izleyiciyi videoda tutmak)
+## 8. Gömülü altyazı
 
-Amaç, dikkati dağılan izleyicinin birkaç saniye içinde yeniden videoya bağlanmasıdır. Kurallar:
+Altyazı ayrı bir kutuda durmaz; videonun üzerine **gömülüdür**:
+
+- 1–4 kelimelik kısa parçalar, BÜYÜK HARF, 62 px kalın.
+- Beyaz yazı, 6 px kömür kontur ve yumuşak gölge: hangi renkli sahnede olursa olsun okunur.
+- Kelimeler söylendikçe tek tek belirir; o an söylenen kelime limon renktedir ve hafif büyüyüp yerine oturur ("pop").
+- Her parça birkaç derece farklı eğimle gelir; altyazı da sahne gibi canlı durur.
+- Konum: alt zaman çubuğunun hemen üstü; kamera hareketinden etkilenmez.
+
+## 9. Dikkat ritmi (izleyiciyi videoda tutmak)
 
 1. **Her 2,5–3 saniyede bir kesme.** Sahne süresi hedefi 2,8 sn (yüklenen seste altyazı sınırlarına göre en az 2,2 sn).
 2. **Ardışık iki sahne aynı düzende olmaz.** Döngü: Odak → Anahtar kelime → Ara sahne → Gündemde → Senaryodan → Adım adım → Yakın plan → Ara sahne.
-3. **Kompozisyon da değişir:** anlatıcı büyük plan → köşe penceresi → hiç yok (anahtar kelime) → tekrar büyük plan. Göz, yeni bir çerçeve gördüğünde odağı yeniden toplar.
-4. **Soru cümleleri anlatıcıya döner.** Senaryodaki "?" cümlesi her zaman karakterin konuşma balonuyla gösterilir (yeniden kanca).
-5. **Kapanış anlatıcıyla yapılır** ("Son söz").
-6. **Kelime kelime altyazı:** o an söylenen kelime limon renkte yanar; göz sesi takip eder.
-7. **Ses ipuçları:** her kesmede yumuşak whoosh, anahtar kelime ve ikinci kart gelişinde kısa "pop". Sesler uygulama içinde sentezlenir, anlatımın altında kalır ve kapatılabilir.
-8. **Her hareket bir işe yarar.** Süs için hareket eklenmez; hareket ya yeni bilgiyi ya da sahne değişimini işaret eder.
+3. **Renk ve kompozisyon değişir:** her kesmede panel rengi değişir, kuzgun büyük plan ile küçük konma noktaları arasında gidip gelir.
+4. **Soru cümleleri kuzguna döner** (konuşma balonu); **kapanış kuzgunla yapılır** ("Son söz").
+5. **Kelime kelime altyazı** gözü sesle birlikte taşır.
+6. **Ses ipuçları:** her kesmede whoosh, anahtar kelime ve ikinci kart gelişinde kısa "pop". Uygulama içinde sentezlenir, kapatılabilir.
+7. **Her hareket bir işe yarar:** hareket ya yeni bilgiyi ya da sahne değişimini işaret eder.
 
-## 8. Anlatıcı karakter: Kuzgun
+## 10. Anlatıcı: Kuzgun (gerçekçi yan profil)
 
-Kuzgun, temanın imza karakteridir. Bir bakışta tanınması için silueti üç öğeye dayanır: **dikenli taç tüyleri, büyük gaga, limon halkalı gözler**.
+Kuzgun gerçek bir kuzgun gibi **yandan** görünür ve baktığı yöne göre sağa ya da sola döner.
 
-- **Gövde ve baş:** Parlak kuzgun siyahı (`#1B1E29`), başın üstünde mavi-mor bir parlama.
-- **Gözler:** Beyaz göz, koyu göz bebeği, limon iris halkası. Göz kırpınca limon bir çizgiye iner; bakış göz bebeklerinin kaymasıdır.
-- **Kaşlar:** Gri-mavi tüy kaşlar; sahne geçişlerinde, soru ve ünlemlerde kalkar.
-- **Gaga = ağız:** Üst gaga sabit, alt gaga seslendirmenin şiddetine göre açılır. O/U seslerinde gaga daralır, M/B/P'de kapanır.
-- **Atkı:** Limon atkı ve sarkan ucu; temanın vurgu rengini karaktere taşır.
-- **El sallama:** Girişte kanadını kaldırıp sallar.
+- **Anatomi:** Kalın, hafif kıvrık ve uç kısmı aşağı kıvrılan gaga; gaga kökünü örten burun tüyleri; boğazda kabarık, sivri "hackle" tüyleri; uzun, katmanlı kanat tüyleri; kama biçimli kuyruk; pullu bacaklar ve tünek tutan parmaklar.
+- **Renk:** Siyahın tonları (`#121419`, `#1A1D25`, `#262A35`) ve tüylerde mavi-mor parlama (`#3C4766`). Göz koyu kahverengi, küçük bir ışık yansımasıyla. Marka rengi karaktere eklenmez; gerçekçilik korunur.
+- **Gaga = ağız:** Alt gaga seslendirmenin şiddetine göre açılır, içi koyu kırmızı görünür.
+- **Göz:** Kırpınca gri göz kapağı kapanır.
 
 ### Gerçek kuş gibi davranış
 
-Kuzgun sabit bir pencerede durmaz; ekranda dolaşır:
-
-- **Uçuş:** Her kesmede kanat çırparak bir yay çizip yeni yerine uçar (0,55 sn), uçarken gövdesi gittiği yöne eğilir.
-- **Konma noktaları:** Arayüzün kendisine konar: girişte ve ara sahnelerde altyazı kapsülünün üstüne (büyük plan), odak sahnesinde altyazı kenarının sağına, "Gündemde" butonunun, anahtar kelime kapsülünün, alıntı işaretinin ve "+" butonunun üstüne. Adım adım sahnesinde birinci karttan ikinci karta seker.
-- **Konunca:** Kanatlarını toplar, küçük bir yaylanma yapar ve konduğu şeyi gagalar.
+- **Uçuş:** Her kesmede kanat çırparak bir yay çizip yeni yerine uçar (0,55 sn); uçarken uzak kanat da görünür, gövde gidiş yönüne eğilir.
+- **Konma noktaları:** Girişte ve ara sahnelerde sahnenin altında büyük plan; diğer sahnelerde "Gündemde" butonu, anahtar kelime kapsülü, alıntı işareti, kartın kenarı ve "+" butonu. Adım adım sahnesinde birinci karttan ikinci karta seker.
+- **Konunca:** Kanatlarını toplar, hafifçe yaylanır, başını öne indirip konduğu şeyi gagalar; altında yumuşak bir gölge oluşur.
 - **Beklerken:** Başını kuşlar gibi kısa, kesik hareketlerle çevirir; ara sıra yerinde zıplar; içeriğe doğru bakar.
-- **Kamera:** Kuş konarken kamera onun üzerine yakınlaşır, sonra yavaşça sahnenin içeriğine kayar. Göz önce canlı olanı, sonra bilgiyi bulur.
-
-Kullanım kuralları: Kuzgun'un renkleri değiştirilmez; limon yalnızca iris, atkı ve göz kırpma çizgisinde bulunur. Büyük planda baş çerçevenin yatay ortasındadır; köşe penceresinde koyu daire, limon halka ve altta limon isim etiketiyle görünür.
 
 Alternatif karakterler (Volt, Nova, Kaan, Ece) aynı rig'i kullanır.
 
-## 9. Yapılmaması gerekenler
+## 11. Yapılmaması gerekenler
 
 - Limon metni açık zemine yazmak.
 - Kartları keskin köşeli veya gölgesi ağır yapmak.

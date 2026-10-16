@@ -123,9 +123,13 @@ class CapsuleThemeTests(unittest.TestCase):
         content = "\n".join(world + hud)
         self.assertIn(r"\clip(", "\n".join(world))
         self.assertIn("Anahtar kelime", content)
-        # The active caption word is highlighted in lime, one event per word.
-        self.assertEqual(sum("Metin bir iki" in line.replace(r"{\1c&H3AF2D9&}", "").replace(r"{\1c&HFFFFFF&}", "")
-                             for line in hud), 3)
+        # Burned-in captions: one event per spoken word, the active word lit in lime
+        # and the words still to come laid out but invisible.
+        captions = [line for line in hud if r"\bord6" in line]
+        self.assertEqual(len(captions), 3)
+        self.assertTrue(all("METİN" in line and "İKİ" in line for line in captions))
+        self.assertIn(r"{\alpha&HFF&}İKİ", captions[0])
+        self.assertIn(r"\1c&H3AF2D9&", captions[2])
         self.assertIn("Teknoloji gündemi", content)
         self.assertIn(r"\1c&H3AF2D9&", content)  # Lime accent in ASS BGR order.
         self.assertNotIn(r"{\fnX}", content)
@@ -158,7 +162,7 @@ class AttentionTests(unittest.TestCase):
         scenes = _host_plan(_kinetic_plan(36, LONG, 2.8))
         zoom, x, y = capsule.camera(scenes, 36)
         self.assertEqual(zoom.count("if(lt(it,"), len(scenes) - 1)
-        self.assertIn("exp(", zoom)  # Punch-ins on cuts.
+        self.assertIn("(3-2*", zoom)  # Smooth zoom into the widget and back out.
         self.assertTrue(x.startswith("max(0,min(iw-iw/zoom,") and y.startswith("max(0,min(ih-ih/zoom,"))
 
     def test_keyword_is_a_verbatim_word(self):
@@ -201,3 +205,20 @@ class RoamingTests(unittest.TestCase):
         rig = presenter.Rig("seed", LONG, scenes, 36, None, roam=True)
         angles = {round(rig.pose(10 + i / 12)["angle"]) for i in range(36)}
         self.assertGreater(len(angles), 1)
+
+
+class PaletteTests(unittest.TestCase):
+    def test_scene_colours_return_to_the_main_palette_every_third_scene(self):
+        from app import capsule
+        names = [capsule.palette(index)["name"] for index in range(9)]
+        self.assertEqual(names[0::3], ["main"] * 3)
+        self.assertTrue(all(name != "main" for i, name in enumerate(names) if i % 3))
+        self.assertEqual(len(set(names)), 5)
+
+    def test_captions_are_cut_into_short_bursts(self):
+        from app import capsule
+        bursts = capsule.caption_chunks([(0, 4, "Yeni nesil telefon çipleri yapay zekâyı\ncihazda çalıştırıyor.")])
+        self.assertTrue(all(1 <= len(words) <= 4 for _start, _end, words, _times in bursts))
+        self.assertEqual(" ".join(w for *_x, words, _t in bursts for w in words),
+                         "Yeni nesil telefon çipleri yapay zekâyı cihazda çalıştırıyor.")
+        self.assertEqual(bursts[-1][1], 4)

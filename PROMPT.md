@@ -58,3 +58,14 @@ gerçek bir kuş gibi yap butonların üstüne falan veya focus falan videoya zo
 
 - Kuzgun sahneler arasında uçar, butonlara/kartlara/altyazı kenarına konar, gagalar, zıplar.
 - Kamera kuşun konduğu yere yakınlaşır, ardından içeriğe kayar.
+
+## Gerçekçi kuzgun, gömülü altyazı, renk döngüsü ve widget zoom'u
+
+ön profil değilde yan profil olsun kuşun gerçek bir kuzgun gibi dursun yani böyle realistik
+
+birde alt yazı kısmını beğenmedim altyazıyı videoya gömerek yap daha böyle dikkat çekici ve dinamik olsun ve slaytların rengi değişsin her 2 slaytta sonra ana renge geri dönsün böyle widget e zoom atsın falan sonra zoom geri gelsin gibi dinamik render olsun
+
+- Kuzgun gerçekçi yan profil; baktığı yöne döner.
+- Altyazı kutusuz, konturlu, kelime kelime beliren kısa parçalar.
+- Sahne renkleri: Ana → iki renkli sahne → Ana.
+- Kamera her sahnede widget'a yakınlaşıp geri açılır.

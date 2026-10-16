@@ -391,11 +391,17 @@
       const card = el("article", "news-card");
       const top = el("div", "news-card-top");
       top.append(newsTile(i));
+      if (Number(item.trend_boost) > 0) {
+        const trend = el("span", "score-tag trend-tag", "Trend +" + Math.round(Number(item.trend_boost)));
+        trend.title = "Sosyal trendlerde eşleşen kelimeler: " + (item.trend_words || []).join(", ") +
+          (item.trend_posts?.length ? "\n" + item.trend_posts.map((post) => post.platform + ": " + post.title).join("\n") : "");
+        top.append(trend);
+      }
       if (Number.isFinite(Number(item.score))) {
         const score = el(
           "span",
           "score-tag",
-          "İlgi tahmini · " + Math.round(Number(item.score)),
+          "İlgi tahmini · " + Math.round(Number(item.hype_score ?? item.score)),
         );
         score.title =
           "Güncellik ve konu kelimelerine göre hesaplanır; doğrulanmış trend verisi değildir.";
@@ -1358,6 +1364,7 @@
     $("#host-look").value = project.render_options?.host_look || "vega";
     $("#render-sfx").checked = project.render_options?.sfx !== false;
     $("#render-palette").value = project.render_options?.palette || "auto";
+    renderImage(project);
     $("#host-name").value = project.render_options?.host_name || "";
     $("#host-fields").hidden = $("#video-design").value !== "host";
     const savedOptions = project.render_options;
@@ -1826,6 +1833,81 @@
       }
     });
   }
+  async function loadTrends() {
+    const data = await api("/api/trends");
+    const status = $("#trends-status");
+    $("#refresh-trends").disabled = !data.configured;
+    if (!data.configured) {
+      status.textContent = "Sosyal trendler için .env dosyasına APIFY_TOKEN ekleyip uygulamayı yeniden başlat.";
+    } else if (data.last_refreshed) {
+      status.textContent = "Sosyal trendler: " + data.items.length + " gönderi · " +
+        new Date(data.last_refreshed).toLocaleString("tr-TR");
+    } else {
+      status.textContent = "Sosyal trendler henüz çekilmedi.";
+    }
+  }
+  async function refreshTrends() {
+    await busy($("#refresh-trends"), async () => {
+      try {
+        const data = await api("/api/trends/refresh", { method: "POST", body: "{}" });
+        state.news = data.news;
+        renderNews();
+        await loadTrends();
+        toast(data.warning ? "Bazı platformlar alınamadı: " + data.warning : "Sosyal trendler güncellendi.", Boolean(data.warning));
+      } catch (error) {
+        toast(error.message, true);
+      }
+    });
+  }
+  function renderImage(project) {
+    const chosen = project.image;
+    $("#image-chosen").hidden = !chosen;
+    if (chosen) $("#image-preview").src = chosen.url + "?v=" + encodeURIComponent(chosen.chosen_at || "");
+    const list = $("#image-candidates");
+    list.replaceChildren(...(project.image_candidates || []).map((item) => {
+      const row = el("div", "image-candidate");
+      const link = sourceLink(item.url, item.kind === "og" ? "Paylaşım görseli" : (item.alt || "Haber görseli"), "text-button");
+      const use = el("button", "button button-outline", "Kullan");
+      use.type = "button";
+      use.addEventListener("click", () => chooseImage(item.url));
+      row.append(link, use);
+      return row;
+    }));
+  }
+  async function discoverImages() {
+    if (!state.selected) return;
+    await busy($("#discover-images"), async () => {
+      try {
+        const data = await api("/api/projects/" + encodeURIComponent(state.selected.id) + "/images/discover",
+          { method: "POST", body: "{}" });
+        state.selected = { ...state.selected, image_candidates: data.candidates };
+        renderImage(state.selected);
+        if (!data.candidates.length) toast("Bu haberde kullanılabilir görsel bulunamadı.", true);
+      } catch (error) {
+        toast(error.message, true);
+      }
+    });
+  }
+  async function chooseImage(url) {
+    try {
+      const project = await api("/api/projects/" + encodeURIComponent(state.selected.id) + "/image",
+        { method: "POST", body: JSON.stringify({ url }) });
+      state.selected = project;
+      renderImage(project);
+      toast("Görsel videoya eklenecek.");
+    } catch (error) {
+      toast(error.message, true);
+    }
+  }
+  async function removeImage() {
+    try {
+      const project = await api("/api/projects/" + encodeURIComponent(state.selected.id) + "/image", { method: "DELETE" });
+      state.selected = project;
+      renderImage(project);
+    } catch (error) {
+      toast(error.message, true);
+    }
+  }
   async function loadLogos() {
     const data = await api("/api/logos");
     const palette = $("#render-palette");
@@ -1869,7 +1951,11 @@
   async function init() {
     hydrateIcons();
     $("#upload-logo").addEventListener("click", uploadLogo);
+    $("#refresh-trends").addEventListener("click", refreshTrends);
+    $("#discover-images").addEventListener("click", discoverImages);
+    $("#remove-image").addEventListener("click", removeImage);
     loadLogos().catch(() => {});
+    loadTrends().catch(() => {});
     bindEvents();
     navigate(location.hash.slice(1) || "dashboard", false);
     const results = await Promise.allSettled([

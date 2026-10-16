@@ -162,6 +162,14 @@ Bütün grafikler uygulama içinde üretilir. Bu özellik ücretli stok video, m
 
 `tests/translation_ui_smoke.py`, ayrı bir yerel ve belirli yanıt veren model taklidiyle gerçek HTTP çeviri bağlantısını ve arayüzü doğrular. Bu, gerçek bir dil modelinin çeviri kalitesi testi değildir. Bulut makinesinde Ollama model indirme adresleri proxy403 ile engellendiği için gerçek model çalıştırılmadı; gerçek animasyonlu video ve Türkçe yerel seslendirme ise FFmpeg ile üretildi.
 
+## Apify: sosyal trendler ve haber görselleri (isteğe bağlı)
+
+[Apify](https://apify.com) bulut tabanlı bir web kazıma platformudur. Kalıcı ücretsiz planında her ay 5 $ kullanım kredisi vardır; bazı hazır actor'lar buna ek ücret alabilir. Uygulama yalnızca `.env` dosyasında `APIFY_TOKEN` tanımlıysa Apify'ı kullanır. Token yalnızca istek başlığında gönderilir; adreslerde, kayıtlarda veya depoda tutulmaz. Token'ı Apify Console → Settings → API & Integrations bölümünden oluşturun.
+
+- **Sosyal trendler:** Haberler sayfasındaki **Sosyal trendler** düğmesi YouTube (`streamers/youtube-scraper`), TikTok (`clockworks/tiktok-scraper`) ve X (`apidojo/tweet-scraper`) üzerinde teknoloji aramaları çalıştırır. Haberler, trend gönderileriyle ortak anahtar kelimelerine ve bu gönderilerin etkileşimine göre en fazla +25 puan alır. Kartta "Trend +N" rozeti ve eşleşen gönderiler görünür. Platformlardan biri başarısız olsa da diğerleri kullanılır.
+- **Haber görselleri:** Editördeki **Haber görseli** bölümü, Apify Cheerio Scraper (`apify/cheerio-scraper`) ile kaynak haber sayfasındaki paylaşım ve makale görsellerini bulur. Seçtiğin görseli sunucu yalnızca herkese açık adreslerden, en fazla 8 MB olacak şekilde indirir ve 1080 px JPEG'e çevirir. Görsel videoda açılıştan sonra kaynağı yazılı ayrı bir sahnede gösterilir. Görselin kullanım hakkını kontrol etmek senin sorumluluğundadır.
+- Actor'lar değişirse `.env` içinde `APIFY_YOUTUBE_ACTOR`, `APIFY_TIKTOK_ACTOR`, `APIFY_X_ACTOR` ve `APIFY_IMAGE_ACTOR` ile değiştirilebilir. Bulut geliştirme ortamında Apify'a ağ erişimi olmadığı için entegrasyon sahte yanıtlarla test edildi; ilk gerçek kullanımı kendi bilgisayarında yap.
+
 ## Video motoru: Remotion
 
 Videolar [Remotion](https://www.remotion.dev) ile üretilir: sahneler, kartlar, kamera hareketleri, anlatıcı ve kelime kelime altyazılar `remotion/src/Video.jsx` içindeki React bileşenleriyle çizilir. Python tarafı (`app/capsule.py`) seslendirmeden, altyazı zamanlarından ve senaryodan bir **video planı** (JSON) hazırlar; `remotion/render.mjs` bu planı sessiz bir MP4'e dönüştürür; FFmpeg son adımda anlatımı ve geçiş seslerini ekler. Fontlar (Space Grotesk, Inter; SIL Open Font License) npm paketlerinden gelir, çalışma sırasında internetten font indirilmez.

@@ -376,9 +376,14 @@
                   anlatımını oluştur.
                 </p>
               </div>
-              <button class="button button-light" id="refresh-news">
-                <span data-icon="refresh"></span>Kaynakları yenile
-              </button>
+              <div class="news-actions">
+                <button class="button button-light" id="refresh-news">
+                  <span data-icon="refresh"></span>Kaynakları yenile
+                </button>
+                <button class="button button-outline" id="refresh-trends" title="YouTube, TikTok ve X trendlerini Apify ile çeker (Apify kredisi kullanır)">
+                  <span data-icon="sparkles"></span>Sosyal trendler
+                </button>
+              </div>
             </div>
             <div
               class="source-health"
@@ -388,6 +393,7 @@
             <p class="refresh-meta" id="news-refreshed" role="status">
               Henüz yenileme bilgisi yok.
             </p>
+            <p class="refresh-meta" id="trends-status" role="status"></p>
             <div class="notice">
               <span data-icon="info"></span>
               <p>
@@ -484,6 +490,16 @@
                   <button type="button" class="text-button" id="copy-script"><span data-icon="copy"></span>Metni kopyala</button>
                   <button type="button" class="text-button" id="download-script"><span data-icon="download"></span>Metni indir</button>
                 </div>
+                <details id="image-workflow" class="voice-workflow">
+                  <summary>Haber görseli (Apify)</summary>
+                  <p class="field-help">Kaynak haberin sayfasındaki görselleri bulur; seçtiğin görsel videoda kaynağıyla birlikte ayrı bir sahnede gösterilir. Görselin kullanım hakkını kontrol etmek senin sorumluluğundadır.</p>
+                  <button class="button button-light full-width" type="button" id="discover-images">Görselleri bul</button>
+                  <div id="image-candidates" class="image-candidates"></div>
+                  <div id="image-chosen" hidden>
+                    <img id="image-preview" alt="Seçilen haber görseli" />
+                    <button class="text-button" type="button" id="remove-image">Görseli kaldır</button>
+                  </div>
+                </details>
                 <details id="voice-workflow" class="voice-workflow">
                   <summary><span data-icon="audio"></span>Kendi ses dosyanı kullan <span>API gerekmez</span></summary>
                   <ol class="voice-steps">

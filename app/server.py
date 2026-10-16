@@ -23,7 +23,7 @@ import requests
 from werkzeug.exceptions import HTTPException
 from werkzeug.utils import secure_filename
 
-from . import audio, media, news, palettes, presenter, writing, youtube, translation
+from . import apify, audio, media, news, palettes, presenter, writing, youtube, translation
 
 ROOT = Path(__file__).resolve().parent.parent
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
@@ -319,11 +319,50 @@ def create_app(data_dir=None, testing=False):
             rows = db.execute('SELECT text,kind,created FROM activity ORDER BY id DESC LIMIT 25').fetchall()
         return jsonify(items=[dict(zip(('text', 'kind', 'created'), row)) for row in rows])
 
+    def trends_state():
+        try:
+            return get('meta', 'trends')
+        except ValueError:
+            return {'id': 'trends', 'items': [], 'sources': [], 'last_refreshed': None}
+
+    def ranked_news():
+        """News ranked by recency/keywords, boosted by matching social trends when available."""
+        items = cached_news()
+        trends = trends_state()['items']
+        if not trends:
+            return items
+        return sorted(apify.hype_matches(items, trends), key=lambda item: item['hype_score'], reverse=True)
+
     @app.get('/api/news')
     def news_list():
         state = news_state()
-        return jsonify(items=cached_news(), cached=True, sources=state['sources'], last_refreshed=state['last_refreshed'],
+        return jsonify(items=ranked_news(), cached=True, sources=state['sources'], last_refreshed=state['last_refreshed'],
                        warning='Puanlar güncellik ve anahtar kelimelerden hesaplanır; gerçek izlenme veya doğrulama puanı değildir.')
+
+    @app.get('/api/trends')
+    def trends_get():
+        state = trends_state()
+        return jsonify(configured=apify.configured(), items=state['items'][:30], sources=state['sources'],
+                       last_refreshed=state['last_refreshed'])
+
+    @app.post('/api/trends/refresh')
+    def trends_refresh():
+        if not apify.configured():
+            raise ValueError('Apify kullanmak için yerel .env dosyasına APIFY_TOKEN ekleyin ve uygulamayı yeniden başlatın.')
+        if not refresh_lock.acquire(blocking=False):
+            return jsonify(error='Başka bir tarama sürüyor.'), 409
+        try:
+            fetched = apify.fetch_trends()
+            state = {'id': 'trends', 'items': fetched['items'], 'sources': fetched['sources'], 'last_refreshed': now()}
+            if fetched['items'] or not trends_state()['items']:
+                put('meta', state)
+            failed = [source['error'] for source in fetched['sources'] if source['error']]
+            event(f'{len(fetched["items"])} sosyal trend alındı (Apify).', 'success' if fetched['items'] else 'warning')
+            return jsonify(configured=True, items=fetched['items'][:30], sources=fetched['sources'],
+                           last_refreshed=state['last_refreshed'], news=ranked_news(),
+                           warning=' '.join(failed))
+        finally:
+            refresh_lock.release()
 
     @app.post('/api/news/refresh')
     def refresh():
@@ -473,6 +512,81 @@ def create_app(data_dir=None, testing=False):
         slug = logo_slug(slug)
         (logo_dir / f'{slug}.png').unlink(missing_ok=True)
         return jsonify(ok=True)
+
+    # --- News images (Apify discovery, local download) ------------------------------
+    def image_dir(ident):
+        if not re.fullmatch(r'[a-f0-9]{32}', ident):
+            raise ValueError('Geçersiz proje kimliği')
+        base = data / 'images'
+        if base.is_symlink() or (base / ident).is_symlink():
+            raise ValueError('Görsel dizini güvenli değil.')
+        return base / ident
+
+    def image_file(value):
+        path = image_dir(value['id']) / 'image.jpg'
+        return path if value.get('image') and path.is_file() and not path.is_symlink() else None
+
+    @app.post('/api/projects/<ident>/images/discover')
+    def discover_images(ident):
+        result = project(ident)
+        source = result.get('source_url') or ''
+        if not apify.public_url(source):
+            raise ValueError('Bu projenin herkese açık bir kaynak haber adresi yok.')
+        try:
+            candidates = apify.discover_images(source)
+        except apify.ApifyError as exc:
+            raise ValueError(str(exc)) from None
+        result.update(image_candidates=candidates, updated=now())
+        put('project', result)
+        return jsonify(candidates=candidates)
+
+    @app.post('/api/projects/<ident>/image')
+    def choose_image(ident):
+        fields = body()
+        url = fields.get('url')
+        with jobs_lock:
+            result = project(ident)
+            if is_busy(ident):
+                return jsonify(error='İşlem sürerken görsel değiştirilemez.'), 409
+        allowed = {item.get('url') for item in result.get('image_candidates') or []}
+        if not isinstance(url, str) or url not in allowed:
+            raise ValueError('Önce görselleri bulun ve listeden birini seçin.')
+        folder = image_dir(ident)
+        folder.mkdir(parents=True, mode=0o700, exist_ok=True)
+        raw = folder / f'.download-{uuid.uuid4().hex}'
+        staged = folder / f'.image-{uuid.uuid4().hex}.jpg'
+        try:
+            try:
+                apify.download_image(url, raw)
+            except apify.ApifyError as exc:
+                raise ValueError(str(exc)) from None
+            media.normalize_image(raw, staged)
+            staged.replace(folder / 'image.jpg')
+        finally:
+            raw.unlink(missing_ok=True)
+            staged.unlink(missing_ok=True)
+        credit = (urlparse(result.get('source_url') or url).hostname or '').removeprefix('www.')
+        result.update(image={'source_url': url, 'credit': credit, 'chosen_at': now(),
+                             'url': f'/api/projects/{ident}/image/file'}, updated=now())
+        put('project', result)
+        return jsonify(public_project(result))
+
+    @app.get('/api/projects/<ident>/image/file')
+    def image_get(ident):
+        path = image_file(project(ident))
+        if path is None:
+            from flask import abort
+            abort(404, description='Görsel bulunamadı.')
+        return send_from_directory(path.parent, path.name, mimetype='image/jpeg')
+
+    @app.delete('/api/projects/<ident>/image')
+    def image_delete(ident):
+        result = project(ident)
+        remove_owned_directory(image_dir(ident))
+        result.pop('image', None)
+        result.update(updated=now())
+        put('project', result)
+        return jsonify(public_project(result))
 
     @app.get('/api/projects/<ident>/script')
     def download_script(ident):
@@ -672,7 +786,7 @@ def create_app(data_dir=None, testing=False):
             if not re.fullmatch(r'[a-f0-9]{32}', ident):
                 raise ValueError('Geçersiz proje kimliği')
             # Never trust stored video_path for deletion and never follow a symlink.
-            for kind in ('renders', 'audio'):
+            for kind in ('renders', 'audio', 'images'):
                 remove_owned_directory(data / kind / ident)
             with connection() as db:
                 db.execute("DELETE FROM documents WHERE kind='project' AND id=?", (ident,))
@@ -690,6 +804,9 @@ def create_app(data_dir=None, testing=False):
                     put('project', result)
                 target = data / 'renders' / ident / uuid.uuid4().hex[:12]
                 render_input = dict(result, logo_dir=str(logo_dir))
+                picture = image_file(result)
+                if picture is not None:
+                    render_input.update(image_path=str(picture), image_credit=result['image'].get('credit', ''))
                 if opts.get('tts_provider') == 'uploaded':
                     render_input.update(audio_path=str(audio_file(result)),
                                         audio_captions=result['audio']['captions'],

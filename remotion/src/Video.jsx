@@ -229,6 +229,23 @@ const SceneBack = ({ scene, plan }) => {
         </Card>,
       );
     });
+  } else if (L === "image" && plan.image) {
+    // The chosen news image: a framed card with a slow Ken Burns push and a source credit.
+    const p = enter(frame, fps, 0, 360);
+    const push = 1.02 + 0.08 * clamp(frame / fps / Math.max(0.1, length));
+    content.push(
+      <Abs key="frame" x={40} y={290 + 40 * (1 - p)} w={640} h={430}
+        style={{ opacity: p, borderRadius: 36, overflow: "hidden", border: `2px solid ${hex(pal.accent)}88`,
+                 boxShadow: `0 20px 50px rgba(0,0,0,.35), 0 0 30px ${hex(pal.accent)}33` }}>
+        <Img src={plan.image.src} style={{ width: "100%", height: "100%", objectFit: "cover", transform: `scale(${push})` }} />
+        {plan.image.credit ? (
+          <Abs x={18} y={382} style={{ background: "rgba(0,0,0,.6)", color: "#FFFFFF", borderRadius: 14, padding: "5px 12px",
+                                        fontFamily: BODY, fontSize: 15 }}>Görsel: {plan.image.credit}</Abs>
+        ) : null}
+      </Abs>,
+      <Lines key="t" text={scene.text} size={scene.size} color={pal.ink} x={62} y={746} w={600} frame={frame} fps={fps}
+        delay={0.25} weight={500} />,
+    );
   } else if (L === "host") {
     const top = 268;
     const box = scene.text.split("\n").length * Math.round(scene.size * 1.18) + 96;

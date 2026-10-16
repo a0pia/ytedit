@@ -3766,3 +3766,28 @@ dialog .inline-warning {
   font-size: 12px;
   font-weight: 600;
 }
+.news-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.trend-tag {
+  background: rgba(46, 230, 255, 0.16);
+}
+.image-candidates {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+}
+.image-candidate {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+#image-preview {
+  width: 100%;
+  border-radius: 12px;
+  margin-top: 8px;
+}

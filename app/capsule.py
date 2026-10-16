@@ -25,7 +25,7 @@ SIGNAL_RED, SIGNAL_GREEN = "E8735A", "9CCB5A"
 BRAND = os.environ.get("VIDEO_BRAND", "Aopia")[:24] or "Aopia"
 
 LABELS = {"hook": "Gündem", "editorial": "Odak", "card": "Gündemde", "statement": "Yakın plan",
-          "keyword": "Anahtar kelime", "quote": "Senaryodan", "split": "Adım adım"}
+          "keyword": "Anahtar kelime", "quote": "Senaryodan", "split": "Adım adım", "image": "Haber görseli"}
 # Host placements for non-roaming characters; the PiP badge matches presenter's mask.
 PLACEMENTS = {"big": (180.0, 486.0, .88), "pip": (504.0, 676.0, .42)}
 PIP_CIRCLE = (588.0, 794.0, 96.0)
@@ -35,7 +35,7 @@ CAPTION_Y = 1128    # Baseline of the burned-in captions, just above the scene b
 # The widget each layout zooms into: (focus x, focus y, extra zoom).
 WIDGETS = {"hook": (360, 700, .16), "host": (360, 470, .14), "keyword": (360, 520, .24),
            "editorial": (360, 470, .2), "card": (360, 520, .2), "quote": (300, 470, .18),
-           "split": (360, 380, .18), "statement": (330, 430, .18)}
+           "split": (360, 380, .18), "statement": (330, 430, .18), "image": (360, 560, .14)}
 
 
 def palette(index: int, pack_id: str = "kapsul") -> dict:
@@ -88,6 +88,8 @@ def perches(scenes: list[dict]) -> list[dict]:
             spots = [(start, 590.0, 290.0, .24), (start + (end - start) * .45, 590.0, 500.0, .24)]
         elif layout == "statement":
             spots = [(start, 640.0, 206.0, .22)]
+        elif layout == "image":
+            spots = [(start, 600.0, 290.0, .24)]
         else:
             spots = [(start, 590.0, 712.0, .3)]
         scene["perch"] = spots
@@ -200,6 +202,9 @@ def build_plan(title: str, segments, scenes: list[dict], duration: float, host: 
             item["parts"] = [{"size": size, "text": text} for size, text in
                              (_fit_display(part, sizes=(44, 40, 36, 32, 28), width=480, lines=3, height=150)
                               for part in parts if part)]
+        elif layout == "image":
+            item["size"], item["text"] = _fit_display(item["phrase"], sizes=(34, 30, 28), width=560, lines=3,
+                                                      height=130)
         else:
             item["size"], item["text"] = _fit_display(item["phrase"], sizes=(60, 54, 48, 44, 40, 36), width=600,
                                                       lines=6, height=380)
@@ -222,7 +227,8 @@ def build_plan(title: str, segments, scenes: list[dict], duration: float, host: 
     plan = {"fps": fps, "width": 720, "height": 1280, "duration": duration, "title": title, "brand": BRAND,
             "pack": {"frame": pk["frame"], "pop": pk["pop"], "cyber": bool(pk.get("cyber"))},
             "scenes": planned, "captions": captions, "camera": camera,
-            "brandMark": {"name": brand["name"], "logo": brand.get("logo")} if brand else None, "host": None}
+            "brandMark": {"name": brand["name"], "logo": brand.get("logo")} if brand else None, "host": None,
+            "image": None}
     if host:
         look = presenter.LOOKS[host["look"]]
         bird = look.get("kind") == "raven"

@@ -383,6 +383,21 @@ def normalize_logo(source: Path, target: Path) -> None:
         raise MediaError("Logo okunamadı. Geçerli bir PNG, JPG, WEBP veya SVG yükleyin.")
 
 
+def normalize_image(source: Path, target: Path) -> None:
+    """Decode a downloaded news image locally and store it as a JPEG at most 1080 px wide."""
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        raise MediaError("Görsel işlemek için FFmpeg gerekli.")
+    try:
+        _run([ffmpeg, "-nostdin", "-hide_banner", "-loglevel", "error", "-y", "-i", str(source), "-frames:v", "1",
+              "-vf", "scale='min(1080,iw)':-2:flags=lanczos", "-q:v", "3", "-f", "image2", "-c:v", "mjpeg", str(target)],
+             timeout=30)
+    except MediaError as exc:
+        raise MediaError("Görsel okunamadı. Başka bir görsel seçin.") from exc
+    if not target.is_file() or target.stat().st_size < 256:
+        raise MediaError("Görsel okunamadı. Başka bir görsel seçin.")
+
+
 def _elevenlabs(sentence: str, target: Path) -> None:
     api_key = os.environ.get("ELEVENLABS_API_KEY", "")
     voice_id = os.environ.get("ELEVENLABS_VOICE_ID", "")
@@ -631,6 +646,16 @@ def _render_work(project: dict, output_dir: Path, options: dict | None = None,
             scenes = capsule.perches(scenes)
         host = {"look": look, "name": host_name, "spans": spans,
                 "levels": presenter.speech_levels(narration_path, cursor) if speech else None}
+    picture = None
+    image_path = project.get("image_path")
+    if image_path and Path(str(image_path)).is_file() and Path(str(image_path)).stat().st_size <= 6 * 1024 * 1024:
+        picture = {"src": "data:image/jpeg;base64," + base64.b64encode(Path(str(image_path)).read_bytes()).decode("ascii"),
+                   "credit": str(project.get("image_credit") or "")[:80]}
+        if len(scenes) >= 3:
+            # The news image gets its own scene right after the opening.
+            scenes[1] = {**scenes[1], "layout": "image", "host": "pip" if design == "host" else scenes[1].get("host")}
+            if presenter.LOOKS[look].get("roam") and design == "host":
+                scenes = capsule.perches(scenes)
     pack = palettes.choose_pack(palette_choice, title, script)
     brand = None
     slug = palettes.primary_brand(title, script)
@@ -643,6 +668,7 @@ def _render_work(project: dict, output_dir: Path, options: dict | None = None,
     subtitle_path = _write_srt(output_dir, segments)
     moments = capsule.emphasis_moments(segments, cursor)
     plan = capsule.build_plan(title, segments, scenes, cursor, host, pack, brand)
+    plan["image"] = picture
     plan_path = output_dir / "plan.json"
     plan_path.write_text(json.dumps(plan, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
     audio_track = narration_path

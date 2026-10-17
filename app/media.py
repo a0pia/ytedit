@@ -14,6 +14,7 @@ import sys
 import tempfile
 import textwrap
 import time
+from fractions import Fraction
 import urllib.error
 import urllib.request
 import unicodedata
@@ -30,6 +31,14 @@ class MediaError(RuntimeError):
 MAX_SCRIPT_LENGTH = 1200
 MAX_DURATION = 90.0
 SAMPLE_RATE = 24000
+VIDEO_PRESETS = {
+    "720p": ((720, 1280), "HD"),
+    "1080p": ((1080, 1920), "Full HD"),
+    "1440p": ((1440, 2560), "QHD"),
+}
+DEFAULT_RESOLUTION = "1080p"
+ALLOWED_FPS = (30, 60)
+DEFAULT_FPS = 60
 
 
 def _run(command: list[str], *, timeout: int = 60, cwd: Path | None = None,
@@ -470,22 +479,25 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     return subtitle_path, ass_path
 
 
-def _background(path: Path, style: str) -> None:
-    """An original procedural background; no downloaded footage or licensed assets."""
-    width, height = 360, 640
+def _background(path: Path, style: str, width: int = 720, height: int = 1280) -> None:
+    """Draw a native-resolution backdrop; no downloaded footage or licensed assets."""
     palette = ((27, 20, 55), (9, 47, 50), (130, 244, 152)) if style == "aurora" else ((67, 25, 48), (20, 22, 52), (251, 150, 113))
     top, bottom, glow = palette
     pixels = bytearray()
+    ring_radius, ring_outer = width * (112 / 360), width * (126 / 360)
+    bloom_x, bloom_y = width * (320 / 360), height * (310 / 640)
+    ring_x, ring_y = width / 2, height * (360 / 640)
     for y in range(height):
         mix = y / (height - 1)
+        row_base = [top[c] * (1 - mix) + bottom[c] * mix for c in range(3)]
         for x in range(width):
-            bloom = math.exp(-(((x - 320) / 190) ** 2 + ((y - 310) / 270) ** 2)) * .25
-            ring_distance = math.hypot(x - 180, y - 360)
-            ring = .12 if abs(ring_distance - 112) < 1.2 or abs(ring_distance - 126) < .7 else 0
-            grid = .025 if (x % 36 == 0 or y % 36 == 0) else 0
+            bloom = math.exp(-(((x - bloom_x) / (width * (190 / 360))) ** 2
+                               + ((y - bloom_y) / (height * (270 / 640))) ** 2)) * .25
+            ring_distance = math.hypot(x - ring_x, y - ring_y)
+            ring = .12 if abs(ring_distance - ring_radius) < width * (1.2 / 360) or abs(ring_distance - ring_outer) < width * (.7 / 360) else 0
+            grid = .025 if (x % max(1, width // 10) == 0 or y % max(1, height // 10) == 0) else 0
             for c in range(3):
-                base = top[c] * (1 - mix) + bottom[c] * mix
-                pixels.append(max(0, min(255, round(base + glow[c] * (bloom + ring + grid)))))
+                pixels.append(max(0, min(255, round(row_base[c] + glow[c] * (bloom + ring + grid)))))
     path.write_bytes(f"P6\n{width} {height}\n255\n".encode("ascii") + pixels)
 
 
@@ -617,6 +629,13 @@ def _render_work(project: dict, output_dir: Path, options: dict | None = None,
         raise MediaError("Konuşma hızı 100 ile 240 arasında olmalı.") from None
     if not 100 <= rate <= 240:
         raise MediaError("Konuşma hızı 100 ile 240 arasında olmalı.")
+    resolution = options.get("resolution", DEFAULT_RESOLUTION)
+    if not isinstance(resolution, str) or resolution not in VIDEO_PRESETS:
+        raise MediaError("Çözünürlük 720p, 1080p veya 1440p olmalı.")
+    fps = options.get("fps", DEFAULT_FPS)
+    if isinstance(fps, bool) or not isinstance(fps, int) or fps not in ALLOWED_FPS:
+        raise MediaError("Kare hızı 30 veya 60 FPS olmalı.")
+    (width, height), _label = VIDEO_PRESETS[resolution]
     engine = _local_engine() if speech and provider == "local" else {"binary": None, "provider": "", "voice": "", "env": None}
     if speech and provider == "local" and not engine["binary"]:
         raise MediaError(engine.get("error") or "Yerel Türkçe ses çalıştırılamadı. Ses ayarlarını ve kurulu sesleri kontrol edin.")
@@ -704,27 +723,33 @@ def _render_work(project: dict, output_dir: Path, options: dict | None = None,
               if design == "kinetic" else None)
     subtitle_path, _ = _write_subtitles(output_dir, title, segments, cursor, scenes=scenes, style=style)
     if design == "classic":
-        _background(output_dir / "background.ppm", style)
-        inputs = ["-loop", "1", "-framerate", "24", "-i", "background.ppm", "-i", "narration.wav"]
-        filters = "scale=720:1280,zoompan=z='min(zoom+0.00020,1.035)':x='iw/2-iw/zoom/2':y='ih/2-ih/zoom/2':d=1:s=720x1280:fps=24,ass=captions.ass"
+        _background(output_dir / "background.ppm", style, width, height)
+        zoom_step = .0048 / fps
+        inputs = ["-loop", "1", "-framerate", str(fps), "-i", "background.ppm", "-i", "narration.wav"]
+        filters = (f"zoompan=z='min(zoom+{zoom_step:.8f},1.035)':x='iw/2-iw/zoom/2':"
+                   f"y='ih/2-ih/zoom/2':d=1:s={width}x{height}:fps={fps},ass=captions.ass")
     else:
-        inputs = ["-f", "lavfi", "-i", f"color=c=0x111B22:s=720x1280:r=24:d={cursor:.6f}", "-i", "narration.wav"]
+        inputs = ["-f", "lavfi", "-i", f"color=c=0x111B22:s={width}x{height}:r={fps}:d={cursor:.6f}", "-i", "narration.wav"]
         filters = "ass=captions.ass"
     report(65)
     video_path = output_dir / "reel.mp4"
     _encode([shutil.which("ffmpeg"), "-nostdin", "-hide_banner", "-loglevel", "error", "-y", "-nostats", "-stats_period", "0.1", "-progress", "pipe:1",
           *inputs,
-          "-vf", filters, "-t", f"{cursor:.6f}", "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
-          "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart",
+          "-vf", filters, "-t", f"{cursor:.6f}", "-c:v", "libx264", "-preset", "fast", "-crf", "18",
+          "-pix_fmt", "yuv420p", "-fps_mode", "cfr", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart",
           "-threads", "2", "-filter_threads", "2", "-shortest", "reel.mp4"], output_dir, cursor, report)
-    probe = _run([shutil.which("ffprobe"), "-v", "error", "-show_entries", "format=duration:stream=codec_name,codec_type,width,height",
+    probe = _run([shutil.which("ffprobe"), "-v", "error", "-show_entries", "format=duration:stream=codec_name,codec_type,width,height,avg_frame_rate",
                   "-of", "json", str(video_path)])
     try:
         metadata = json.loads(probe.stdout)
         actual_duration = float(metadata["format"]["duration"])
-        valid_video = any(stream.get("codec_name") == "h264" and stream.get("width") == 720 and stream.get("height") == 1280 for stream in metadata["streams"])
+        streams = metadata["streams"]
+        video_stream = next(stream for stream in streams if stream.get("codec_type") == "video")
+        actual_fps = float(Fraction(video_stream["avg_frame_rate"]))
+        valid_video = (video_stream.get("codec_name") == "h264" and video_stream.get("width") == width
+                       and video_stream.get("height") == height and abs(actual_fps - fps) < .01)
         valid_audio = any(stream.get("codec_name") == "aac" and stream.get("codec_type") == "audio" for stream in metadata["streams"])
-    except (ValueError, TypeError, KeyError) as exc:
+    except (ValueError, TypeError, KeyError, ZeroDivisionError, StopIteration) as exc:
         raise MediaError("Video çıktısı doğrulanamadı. Yeniden deneyin.") from exc
     if not valid_video or not valid_audio or not 0 < actual_duration <= MAX_DURATION + .1 or not video_path.is_file() or video_path.stat().st_size < 1024:
         raise MediaError("Video çıktısı doğrulanamadı. Yeniden deneyin.")
@@ -737,7 +762,8 @@ def _render_work(project: dict, output_dir: Path, options: dict | None = None,
             "provider": ("Yüklenen ses" if provider == "uploaded" else "ElevenLabs" if provider == "elevenlabs" else engine["provider"]) if speech else "Sessiz video",
             "voice": "Harici kayıt" if provider == "uploaded" else engine["voice"] if speech and provider == "local" else "",
             "subtitle_timing": uploaded_timing if provider == "uploaded" else "sentence_audio" if speech else "estimated",
-            "design": design, "scene_count": len(scenes) if scenes else 1}
+            "design": design, "scene_count": len(scenes) if scenes else 1,
+            "resolution": resolution, "width": width, "height": height, "fps": fps}
 
 
 def render(project: dict, output_dir: Path, options: dict | None = None,

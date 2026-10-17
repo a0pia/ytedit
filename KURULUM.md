@@ -9,7 +9,7 @@
 - Mac için Electron masaüstü başlatıcısı ve Türkçe yönetim paneli.
 - Açık RSS kaynaklarından haber toplama; güncellik ve anahtar kelimelerle yaklaşık ilgi sıralaması.
 - Yerel taslak kaydı, senaryo, başlık, açıklama ve etiket düzenleme.
-- Varsayılan ücretsiz yerel seslendirme ve özgün grafiklerle 720×1280 MP4 üretimi.
+- Ücretsiz yerel seslendirme ve özgün animasyonlu grafiklerle varsayılan 1080×1920, 60 FPS MP4 üretimi; 720p/30 FPS ve 1440p/60 FPS seçenekleri.
 - Ses sürelerine dayanan cümle altyazıları ve indirilebilir SRT.
 - İsteğe bağlı Ollama, OpenAI, Anthropic ve ElevenLabs bağlantıları.
 - Google OAuth ve açık kullanıcı onayıyla YouTube yükleme.
@@ -26,6 +26,10 @@
 ## Yeniden kurulum
 
 Bulutta `/workspace/ytedit` içinde `./scripts/setup-cloud.sh`, ardından `npm run dev` çalıştırılır. Mac'te kurulum ve `npm start` adımları için README.md dosyasına bakın.
+
+## 0.5.0 video kalitesi
+
+Video ayarlarından HD (720×1280), Full HD (1080×1920) veya QHD (1440×2560) çözünürlük ve 30/60 FPS seçilebilir. Yeni videolar varsayılan olarak Full HD ve 60 FPS üretilir. Yüksek çözünürlük ve kare hızı daha fazla işlem gücü, zaman ve disk alanı kullanır. Video motoru metinleri ve özgün grafikleri hedef çözünürlükte çizer, sabit kare hızında H.264/AAC olarak kodlar ve çıktı özelliklerini doğrular.
 
 Kurulum ve başlatma yönergeleri ortam yapılandırma taslağının `install_script` ve `start_skill` alanlarına kaydedildi. Taslağın kaydedilmesi, ortamın yayımlandığı veya yeni bir görevde doğrulandığı anlamına gelmez.
 

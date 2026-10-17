@@ -1270,6 +1270,8 @@
       (Number.isFinite(Number(project.scene_count)) && Number(project.scene_count) > 0
         ? " · " + Number(project.scene_count) + " sahne" : "") +
       (Number(project.duration) > 0 ? " · " + Number(project.duration).toLocaleString("tr-TR", { maximumFractionDigits: 1 }) + " sn" : "") +
+      (project.width && project.height ? " · " + Number(project.width).toLocaleString("tr-TR") + " × " + Number(project.height).toLocaleString("tr-TR") : "") +
+      (project.fps ? " · " + Number(project.fps) + " FPS" : "") +
       (project.subtitle_timing === "audio_estimated" ? " · Tahmini altyazı zamanlaması" :
         ["manual", "audio_manual"].includes(project.subtitle_timing) ? " · Elle düzenlenmiş altyazı zamanlaması" : "");
     $("#upload-project").disabled = running || !!project.youtube_url;
@@ -1352,6 +1354,8 @@
     $("#editor-original").hidden = !original.childElementCount;
     $("#video-design").value = project.render_options?.video_design || project.design || "kinetic";
     const savedOptions = project.render_options;
+    $("#video-resolution").value = savedOptions?.resolution || project.resolution || state.status?.video_quality?.default_resolution || "1080p";
+    $("#video-fps").value = String(savedOptions?.fps || project.fps || state.status?.video_quality?.default_fps || 60);
     const savedProvider = savedOptions?.tts_provider;
     let voiceProvider = savedOptions ? "local" : project.audio ? "uploaded" : "local";
     if (savedOptions?.speech === false) voiceProvider = "none";
@@ -1504,6 +1508,8 @@
           voice: "tr",
           style: $('input[name="render-style"]:checked').value,
           video_design: $("#video-design").value,
+          resolution: $("#video-resolution").value,
+          fps: Number($("#video-fps").value),
           speech: provider !== "none",
           tts_provider: ["elevenlabs", "uploaded"].includes(provider) ? provider : "local",
         };

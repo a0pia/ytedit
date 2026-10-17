@@ -29,7 +29,8 @@ ROOT = Path(__file__).resolve().parent.parent
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 ACTIVE_STATUSES = {'queued', 'rendering', 'uploading', 'translating', 'processing_audio'}
 VIDEO_FIELDS = ('video_url', 'subtitle_url', 'video_path', 'duration', 'render_options',
-                'provider', 'voice', 'speech', 'subtitle_timing', 'scene_count', 'design')
+                'provider', 'voice', 'speech', 'subtitle_timing', 'scene_count', 'design',
+                'resolution', 'width', 'height', 'fps')
 load_dotenv(ROOT / '.env')
 
 
@@ -289,10 +290,15 @@ def create_app(data_dir=None, testing=False):
             except (requests.RequestException, ValueError, TypeError):
                 ollama_cache['ready'] = False
             ollama_cache['checked'] = time.monotonic()
-        return jsonify(app='hype-studio', api_version=4, app_version='0.4.0', project_root=str(ROOT), data_dir=str(data),
+        return jsonify(app='hype-studio', api_version=5, app_version='0.5.0', project_root=str(ROOT), data_dir=str(data),
                        **caps, ai=ollama_cache['ready'],
                        audio_upload={'formats': ['mp3', 'wav'], 'max_bytes': MAX_UPLOAD_BYTES,
                                      'max_duration': audio.MAX_DURATION, 'subtitle_timing': 'estimated'},
+                       video_quality={'default_resolution': media.DEFAULT_RESOLUTION,
+                                      'default_fps': media.DEFAULT_FPS,
+                                      'resolutions': [{'id': key, 'width': size[0], 'height': size[1],
+                                                       'label': label} for key, (size, label) in media.VIDEO_PRESETS.items()],
+                                      'frame_rates': list(media.ALLOWED_FPS)},
                        youtube=token_path.exists() and youtube.configured(), youtube_configured=youtube.configured(),
                        stats={'news': len(cached_news()), 'projects': len(projects),
                               'ready': sum(p.get('status') == 'ready' and bool(p.get('video_url')) for p in projects),
@@ -537,9 +543,7 @@ def create_app(data_dir=None, testing=False):
             translated = translation.translate_project(original, provider)
             validate(translated)
             result = {**original, **translated, 'status': 'draft', 'progress': 0, 'error': None, 'updated': now()}
-            for key in ('video_url', 'subtitle_url', 'video_path', 'duration', 'render_options', 'provider',
-                        'voice', 'speech', 'subtitle_timing', 'scene_count', 'design'):
-                result.pop(key, None)
+            invalidate_video(result)
             with jobs_lock:
                 put('project', result)
                 active.discard(ident)
@@ -566,11 +570,7 @@ def create_app(data_dir=None, testing=False):
             if changed:
                 result['updated'] = now()
             if changes_video:
-                for key in ['video_url', 'subtitle_url', 'video_path', 'duration', 'render_options',
-                            'provider', 'voice', 'speech', 'subtitle_timing', 'scene_count', 'design']:
-                    result.pop(key, None)
-                result['status'] = 'draft'
-                result['progress'] = 0
+                invalidate_video(result)
             put('project', result)
         return jsonify(public_project(result))
 
@@ -629,7 +629,9 @@ def create_app(data_dir=None, testing=False):
                 output = media.render(render_input, target, opts, progress)
                 video = Path(output['video_path']).resolve()
                 subtitle = Path(output['subtitle_path']).resolve()
-                result.update({key: output[key] for key in ('provider', 'voice', 'speech', 'subtitle_timing', 'scene_count', 'design') if key in output})
+                result.update({key: output[key] for key in (
+                    'provider', 'voice', 'speech', 'subtitle_timing', 'scene_count', 'design',
+                    'resolution', 'width', 'height', 'fps') if key in output})
                 result.update(status='ready', progress=100, error=None, duration=output['duration'],
                               video_path=str(video), video_url='/media/' + str(video.relative_to(data / 'renders')),
                               subtitle_url='/media/' + str(subtitle.relative_to(data / 'renders')),
@@ -652,14 +654,22 @@ def create_app(data_dir=None, testing=False):
 
     @app.post('/api/projects/<ident>/render')
     def render_video(ident):
-        opts = body()
+        fields = body()
+        opts = dict(fields)
         if opts.get('style', 'aurora') not in {'aurora', 'sunset'} or opts.get('tts_provider', 'local') not in {'local', 'elevenlabs', 'uploaded'} or not isinstance(opts.get('speech', True), bool):
             raise ValueError('Geçersiz video ayarları')
         if 'speech_rate' in opts and (isinstance(opts['speech_rate'], bool) or not isinstance(opts['speech_rate'], int) or not 100 <= opts['speech_rate'] <= 240):
             raise ValueError('Konuşma hızı 100 ile 240 arasında olmalı.')
         if opts.get('video_design', 'kinetic') not in {'kinetic', 'classic'}:
             raise ValueError('Video tasarımı animasyonlu sahneler veya klasik olmalı.')
+        resolution = opts.get('resolution', media.DEFAULT_RESOLUTION)
+        if not isinstance(resolution, str) or resolution not in media.VIDEO_PRESETS:
+            raise ValueError('Çözünürlük 720p, 1080p veya 1440p olmalı.')
+        fps = opts.get('fps', media.DEFAULT_FPS)
+        if isinstance(fps, bool) or not isinstance(fps, int) or fps not in media.ALLOWED_FPS:
+            raise ValueError('Kare hızı 30 veya 60 FPS olmalı.')
         opts = {key: opts[key] for key in ('style', 'tts_provider', 'speech', 'speech_rate', 'video_design') if key in opts}
+        opts.update(resolution=resolution, fps=fps)
         with jobs_lock:
             result = project(ident)
             if is_busy(ident):

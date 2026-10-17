@@ -44,6 +44,8 @@ Bulut ortamının ağ izin listesi varsa haber yenilemek için `shiftdelete.net`
 4. Önizlemeyi izleyin. Türkçe telaffuz, altyazı zamanlaması ve haber doğruluğunu gözden geçirip dosyayı indirin.
 5. YouTube hesabını isteğe bağlı bağlayın. Hazırladığınız videoyu onaylayıp yükleyin; yayın durumunu bilinçli seçin.
 
+Video ayarlarında HD (720×1280), Full HD (1080×1920) ve QHD (1440×2560) boyutlarından birini; ayrıca 30 veya 60 FPS seçebilirsiniz. Varsayılan Full HD/60 FPS'tir. Yüksek ayarlar daha fazla işlem süresi ve disk alanı gerektirir.
+
 Haber metinleri de telifli olabilir. Haberi kendi kısa anlatımınızla özetleyin, kaynağı belirtin ve yayımlamadan önce kullanılan içeriğin haklarını değerlendirin. YouTube'un özgünlük ve tekrar kullanılan içerik kuralları ayrıca geçerlidir.
 
 ## Ses ve dil modeli seçenekleri
@@ -118,7 +120,7 @@ Python sunucusu `app/`, masaüstü başlatıcısı `desktop/`, kurulum komutlar�
 
 Video oluşturma zaman alabilir; uygulamayı işlem bitene kadar açık tutun. Aynı anda birden fazla ağır video üretimi, özellikle düşük bellekli cihazlarda, yavaşlığa yol açabilir. Mac kurulumu için hata alırsanız önce `ffmpeg -version`, `python3 --version` ve `node --version` çıktılarıyla önkoşulları kontrol edin. Anahtarları veya OAuth tokenlarını hata raporlarına eklemeyin.
 
-İsteğe bağlı gerçek tarayıcı kontrolü için önce sunucuyu başlatın; ayrı bir geliştirme ortamına `playwright==1.55.0` kurup `CHROMIUM_PATH` ile Chromium çalıştırılabilir dosyasını belirtin. `.venv/bin/python tests/ui_smoke.py` manuel taslak oluşturur, ücretsiz sesli video üretir, videonun 720×1280 olarak çözüldüğünü, SRT'yi ve yükleme onayını kontrol eder. Gerçek YouTube yüklemesi yapmaz. Başarılı çıktılar `artifacts/` altına ekran görüntüsü olarak kaydedilir.
+İsteğe bağlı gerçek tarayıcı kontrolü için önce sunucuyu başlatın; ayrı bir geliştirme ortamına `playwright==1.55.0` kurup `CHROMIUM_PATH` ile Chromium çalıştırılabilir dosyasını belirtin. `.venv/bin/python tests/ui_smoke.py` manuel taslak oluşturur, ücretsiz sesli video üretir, videonun 1080×1920 olarak çözüldüğünü, SRT'yi ve yükleme onayını kontrol eder. Gerçek YouTube yüklemesi yapmaz. Başarılı çıktılar `artifacts/` altına ekran görüntüsü olarak kaydedilir.
 
 Bu geliştirme ortamında 243 Python testi ve 9 masaüstü yaşam döngüsü testi geçti. Gerçek tarayıcıda ücretsiz sesli video üretimi, metadata düzenleme, taslak koruması, proje arama/çoğaltma/dışa aktarma/silme ve 15 ekran/boyut kombinasyonu doğrulandı. Canlı RSS erişimi bulut proxy politikası nedeniyle engellendi; Google hesabı verilmediğinden gerçek YouTube yüklemesi ve API anahtarı gerektiren servisler çalıştırılmadı. Mac masaüstü başlatıcısının sözdizimi kontrol edildi; macOS üzerinde çalışma testi henüz yapılmadı.
 

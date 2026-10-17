@@ -76,7 +76,7 @@ function canonicalPath(value) {
 async function readStatus() {
   const status = await readJson('/api/status');
   if (status?.app !== 'hype-studio') throw serviceError(`${port} numaralı portu başka bir uygulama kullanıyor.`);
-  if (status.api_version !== 4) {
+  if (status.api_version !== 5) {
     throw serviceError(`${port} numaralı portta eski veya uyumsuz Hype Studio sunucusu çalışıyor. Açık sunucuyu durdurup uygulamayı yeniden başlatın.`);
   }
   const expectedDataDir = config.HYPE_DATA_DIR || path.join(app.getPath('userData'), 'data');
